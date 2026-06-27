@@ -25,7 +25,7 @@ def render_to_png(config: Config) -> Path:
     source = mosaic.sample(
         center_xy_m=(config.snapshot.x_m, config.snapshot.y_m),
         yaw_rad=config.snapshot.yaw_rad,
-        viewport_m=config.snapshot.viewport_m,
+        viewport_m=config.viewport_m(),
         output_px=(width_leds * over, height_leds * over),
     )
     frame = render_frame(config, source)

@@ -1,0 +1,14 @@
+# Tight sizing-sweep candidate: outer 7 × 5 tiles, central 4 × 2 cutout.
+# 7 * 5 - 4 * 2 = 27 LED tiles (~$900 in Twinkly Squares at MVP pricing).
+# Cutout shifted one tile up-and-left of dead-center (parity prevents an
+# exact center on both axes).
+layout:
+  outer_tiles_w: 7
+  outer_tiles_h: 5
+  cutout_tiles_w: 4
+  cutout_tiles_h: 2
+  cutout_offset_x: 1
+  cutout_offset_y: 1
+
+render:
+  scale_px_per_led: 10

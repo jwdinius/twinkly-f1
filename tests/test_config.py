@@ -97,3 +97,106 @@ def test_load_resolves_snapshot_mosaic_relative_to_config_dir(tmp_path: Path) ->
     cfg = load_config(cfg_path)
     assert cfg.render.scale_px_per_led == 10  # default
     assert cfg.snapshot.mosaic == (tmp_path / "side" / "m.yaml").resolve()
+
+
+def _write_layout_partial(dir_: Path, name: str, outer_w: int) -> Path:
+    path = dir_ / name
+    path.write_text(
+        "layout:\n"
+        f"  outer_tiles_w: {outer_w}\n"
+        "  outer_tiles_h: 3\n"
+        "  cutout_tiles_w: 1\n"
+        "  cutout_tiles_h: 1\n"
+        "  cutout_offset_x: 1\n"
+        "  cutout_offset_y: 1\n"
+    )
+    return path
+
+
+def _write_snapshot_only(dir_: Path, name: str, layout_ref: str | None) -> Path:
+    cfg = dir_ / name
+    body = ""
+    if layout_ref is not None:
+        body += f"layout_config: {layout_ref}\n"
+    body += (
+        "snapshot:\n"
+        "  mosaic: m.yaml\n"
+        "  x_m: 0.0\n"
+        "  y_m: 0.0\n"
+    )
+    cfg.write_text(body)
+    return cfg
+
+
+def test_layout_config_reference_fills_missing_layout(tmp_path: Path) -> None:
+    _write_layout_partial(tmp_path, "layout_a.yaml", outer_w=5)
+    snap = _write_snapshot_only(tmp_path, "snap.yaml", layout_ref="layout_a.yaml")
+    cfg = load_config(snap)
+    assert cfg.layout.outer_tiles_w == 5
+
+
+def test_layout_override_replaces_in_yaml_reference(tmp_path: Path) -> None:
+    _write_layout_partial(tmp_path, "layout_a.yaml", outer_w=5)
+    layout_b = _write_layout_partial(tmp_path, "layout_b.yaml", outer_w=7)
+    snap = _write_snapshot_only(tmp_path, "snap.yaml", layout_ref="layout_a.yaml")
+    cfg = load_config(snap, layout_override=layout_b)
+    assert cfg.layout.outer_tiles_w == 7
+
+
+def test_inline_layout_takes_priority_over_reference(tmp_path: Path) -> None:
+    _write_layout_partial(tmp_path, "layout_ref.yaml", outer_w=5)
+    snap = tmp_path / "snap.yaml"
+    snap.write_text(
+        "layout_config: layout_ref.yaml\n"
+        "layout:\n"
+        "  outer_tiles_w: 9\n"
+        "  outer_tiles_h: 3\n"
+        "  cutout_tiles_w: 1\n"
+        "  cutout_tiles_h: 1\n"
+        "  cutout_offset_x: 4\n"
+        "  cutout_offset_y: 1\n"
+        "snapshot:\n"
+        "  mosaic: m.yaml\n"
+        "  x_m: 0.0\n"
+        "  y_m: 0.0\n"
+    )
+    cfg = load_config(snap)
+    assert cfg.layout.outer_tiles_w == 9  # inline wins
+
+
+def test_layout_override_replaces_even_inline_layout(tmp_path: Path) -> None:
+    layout_override_path = _write_layout_partial(tmp_path, "layout_ovr.yaml", outer_w=7)
+    snap = tmp_path / "snap.yaml"
+    snap.write_text(
+        "layout:\n"
+        "  outer_tiles_w: 9\n"
+        "  outer_tiles_h: 3\n"
+        "  cutout_tiles_w: 1\n"
+        "  cutout_tiles_h: 1\n"
+        "  cutout_offset_x: 4\n"
+        "  cutout_offset_y: 1\n"
+        "snapshot:\n"
+        "  mosaic: m.yaml\n"
+        "  x_m: 0.0\n"
+        "  y_m: 0.0\n"
+    )
+    cfg = load_config(snap, layout_override=layout_override_path)
+    assert cfg.layout.outer_tiles_w == 7  # override wins
+
+
+def test_layout_partial_rejects_unknown_keys(tmp_path: Path) -> None:
+    bad_layout = tmp_path / "bad.yaml"
+    bad_layout.write_text(
+        "layout:\n"
+        "  outer_tiles_w: 3\n"
+        "  outer_tiles_h: 3\n"
+        "  cutout_tiles_w: 1\n"
+        "  cutout_tiles_h: 1\n"
+        "  cutout_offset_x: 1\n"
+        "  cutout_offset_y: 1\n"
+        "weird_top_level: true\n"
+    )
+    snap = _write_snapshot_only(tmp_path, "snap.yaml", layout_ref="bad.yaml")
+    with pytest.raises(ValidationError) as exc:
+        load_config(snap)
+    assert "weird_top_level" in str(exc.value)

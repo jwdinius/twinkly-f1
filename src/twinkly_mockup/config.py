@@ -11,6 +11,13 @@ LEDS_PER_TILE = 6
 TILE_PITCH_M = 0.16
 LED_PITCH_M = TILE_PITCH_M / LEDS_PER_TILE
 
+# Real-world track meters mapped to one Twinkly tile in the stylized mockup.
+# This is decoupled from the LEGO car's 1:9.2 physical scale (the stylized
+# mapping shows more track than the literal scale would). Used when a snapshot
+# omits viewport_m so layout sweeps render layout-appropriate coverage instead
+# of the same crop at varying LED densities.
+WALL_TILE_VIEW_M = 16.0
+
 
 class Layout(BaseModel):
     """Tile-frame layout in whole tiles.
@@ -81,7 +88,7 @@ class Snapshot(BaseModel):
     x_m: float
     y_m: float
     yaw_rad: float = 0.0
-    viewport_m: tuple[float, float]
+    viewport_m: tuple[float, float] | None = None
 
 
 class Config(BaseModel):
@@ -91,20 +98,62 @@ class Config(BaseModel):
     render: Render = Field(default_factory=Render)
     snapshot: Snapshot
     car: CarSpec = Field(default_factory=CarSpec)
-    output_path: Path
+    output_path: Path | None = None
+
+    def viewport_m(self) -> tuple[float, float]:
+        """Resolved viewport: snapshot value if set, else derived from layout."""
+        if self.snapshot.viewport_m is not None:
+            return self.snapshot.viewport_m
+        return (
+            self.layout.outer_tiles_w * WALL_TILE_VIEW_M,
+            self.layout.outer_tiles_h * WALL_TILE_VIEW_M,
+        )
 
 
-def load_config(path: Path) -> Config:
+class LayoutConfigFile(BaseModel):
+    """Standalone layout-sweep YAML: only `layout` and `render`.
+
+    Snapshot YAMLs reference one of these via `layout_config:`, and the
+    `render-all` CLI can override the choice per invocation via `--layout`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    layout: Layout
+    render: Render = Field(default_factory=Render)
+
+
+def load_layout_config(path: Path) -> LayoutConfigFile:
+    """Load and validate a standalone layout-sweep YAML."""
+    raw = _load_yaml_mapping(Path(path))
+    return LayoutConfigFile.model_validate(raw)
+
+
+def load_config(path: Path, *, layout_override: Path | None = None) -> Config:
     """Load and validate a YAML config from disk.
 
-    Relative paths inside the config (today: `snapshot.mosaic`) are resolved
-    against the config file's directory so configs are portable.
+    Snapshot YAMLs may delegate their `layout` and `render` sections to a
+    standalone layout file via a `layout_config:` field (resolved relative to
+    the snapshot YAML's directory). `layout_override`, when provided, replaces
+    the layout reference unconditionally — used by `render-all --layout` to
+    sweep one snapshot across multiple candidate layouts.
+
+    Relative paths inside the config (`snapshot.mosaic`, `layout_config`) are
+    resolved against the config file's directory so configs are portable.
     """
     cfg_path = Path(path)
-    with cfg_path.open("r") as f:
-        raw = yaml.safe_load(f)
-    if not isinstance(raw, dict):
-        raise ValueError(f"config at {path} must be a YAML mapping, got {type(raw).__name__}")
+    raw = _load_yaml_mapping(cfg_path)
+
+    layout_ref = raw.pop("layout_config", None)
+    if layout_ref is not None:
+        ref_path = Path(layout_ref)
+        if not ref_path.is_absolute():
+            ref_path = (cfg_path.parent / ref_path).resolve()
+        _merge_layout_partial(raw, ref_path, overwrite=False)
+
+    if layout_override is not None:
+        _merge_layout_partial(raw, Path(layout_override), overwrite=True)
+
     cfg = Config.model_validate(raw)
     if not cfg.snapshot.mosaic.is_absolute():
         cfg = cfg.model_copy(
@@ -115,3 +164,25 @@ def load_config(path: Path) -> Config:
             }
         )
     return cfg
+
+
+def _load_yaml_mapping(path: Path) -> dict:
+    with path.open("r") as f:
+        raw = yaml.safe_load(f)
+    if not isinstance(raw, dict):
+        raise ValueError(f"config at {path} must be a YAML mapping, got {type(raw).__name__}")
+    return raw
+
+
+def _merge_layout_partial(raw: dict, layout_path: Path, *, overwrite: bool) -> None:
+    """Merge `layout` and `render` from a layout YAML into `raw` in place.
+
+    With `overwrite=False`, only fills keys missing from `raw` (used for an
+    in-YAML `layout_config:` reference, where inline values take priority).
+    With `overwrite=True`, replaces existing keys (used for a CLI override).
+    """
+    layout_raw = _load_yaml_mapping(layout_path)
+    LayoutConfigFile.model_validate(layout_raw)
+    for key in ("layout", "render"):
+        if key in layout_raw and (overwrite or key not in raw):
+            raw[key] = layout_raw[key]

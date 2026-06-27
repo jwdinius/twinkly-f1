@@ -1,0 +1,20 @@
+# Monaco snapshot: Loews / Fairmont hairpin (Turn 6). Slowest corner in F1
+# (~50 km/h). Picked to stress-test yaw rotation (the car traverses ~180°
+# of heading within a tile or two of mosaic real-estate) and tight cutout
+# margins (the apex sits very close to the car silhouette).
+#
+# (x_m, y_m, yaw_rad) are placeholders; populate by eye from the Monaco
+# mosaic once Google Earth Pro export is acquired (HITL handoff — see
+# docs/prd/0001-mvp-monaco-mockup.md). viewport_m is left unset so the layout
+# sweep can derive a layout-appropriate crop (see Config.viewport_m).
+layout_config: layout_standard.yaml
+
+snapshot:
+  mosaic: monaco_mosaic.yaml
+  x_m: 0.0
+  y_m: 0.0
+  yaw_rad: 0.0
+
+car:
+  dimensions_cm: [61.0, 25.0]
+  orientation_deg: 90.0

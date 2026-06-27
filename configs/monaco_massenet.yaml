@@ -1,0 +1,20 @@
+# Monaco snapshot: Massenet (Turn 4–5, the long sweeping right after Casino
+# Square into Mirabeau). Chosen for the sweep because it gives the widest
+# visible context — useful for evaluating whether a layout reads as "track"
+# at all, before stressing it on tighter corners.
+#
+# (x_m, y_m, yaw_rad) are placeholders; populate by eye from the Monaco
+# mosaic once Google Earth Pro export is acquired (HITL handoff — see
+# docs/prd/0001-mvp-monaco-mockup.md). viewport_m is left unset so the layout
+# sweep can derive a layout-appropriate crop (see Config.viewport_m).
+layout_config: layout_standard.yaml
+
+snapshot:
+  mosaic: monaco_mosaic.yaml
+  x_m: 0.0
+  y_m: 0.0
+  yaw_rad: 0.0
+
+car:
+  dimensions_cm: [61.0, 25.0]
+  orientation_deg: 90.0
