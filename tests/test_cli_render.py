@@ -58,6 +58,9 @@ def _write_fixture_config(tmp_path: Path, output_relative: str = "out/fixture.pn
         "  y_m: 0.0\n"
         "  yaw_rad: 0.0\n"
         "  viewport_m: [80.0, 80.0]\n"
+        "car:\n"
+        # Tiny car so it fits inside the 1×1-tile cutout (16cm) of the fixture.
+        "  dimensions_cm: [8.0, 4.0]\n"
         f"output_path: {output_relative}\n"
     )
     return cfg

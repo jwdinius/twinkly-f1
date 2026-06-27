@@ -40,7 +40,7 @@ def _tile_origin_px(tile_i: int, tile_j: int, scale: int) -> tuple[int, int]:
     return tile_i * pitch, tile_j * pitch
 
 
-def _cutout_pixel_rect(layout: Layout, scale: int) -> tuple[int, int, int, int]:
+def cutout_pixel_rect(layout: Layout, scale: int) -> tuple[int, int, int, int]:
     """Inclusive pixel rectangle (left, top, right, bottom) covering the cutout."""
     left, top = _tile_origin_px(layout.cutout_offset_x, layout.cutout_offset_y, scale)
     width_tiles = layout.cutout_tiles_w
@@ -86,7 +86,7 @@ def render_frame(config: Config, source: np.ndarray) -> Image.Image:
     draw = ImageDraw.Draw(img)
 
     if layout.cutout_tiles_w > 0 and layout.cutout_tiles_h > 0:
-        draw.rectangle(_cutout_pixel_rect(layout, scale), fill=tuple(render.wall_color))
+        draw.rectangle(cutout_pixel_rect(layout, scale), fill=tuple(render.wall_color))
 
     led_colors = downsample_to_leds(source, layout)
 
