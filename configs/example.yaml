@@ -1,0 +1,16 @@
+# Suggested-default layout from the MVP PRD.
+# Outer frame 9 × 6 tiles, central cutout 4 × 2 tiles offset to roughly center
+# it (the parity prevents an exact center, so the cutout sits one tile
+# left-of-center). 9 * 6 - 4 * 2 = 46 LED tiles total.
+layout:
+  outer_tiles_w: 9
+  outer_tiles_h: 6
+  cutout_tiles_w: 4
+  cutout_tiles_h: 2
+  cutout_offset_x: 2
+  cutout_offset_y: 2
+
+render:
+  scale_px_per_led: 10
+
+output_path: out/example.png
