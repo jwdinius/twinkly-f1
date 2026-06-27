@@ -24,4 +24,11 @@ snapshot:
   yaw_rad: 0.0
   viewport_m: [144.0, 96.0]
 
+# Default MCL39 dimensions (61 × 25 cm). orientation_deg = 90 rotates the
+# nose-up silhouette CCW so its length runs across the 4-tile-wide cutout
+# (otherwise the 61 cm long car would spill out the top + bottom).
+car:
+  dimensions_cm: [61.0, 25.0]
+  orientation_deg: 90.0
+
 output_path: out/example.png

@@ -6,17 +6,18 @@ from pathlib import Path
 
 from PIL import Image
 
-from .config import Config
-from .led import led_grid_size, render_frame
+from .car import make_car
+from .config import LED_PITCH_M, Config
+from .led import cutout_pixel_rect, led_grid_size, render_frame
 from .mosaic import Mosaic
 
 
 def render_to_png(config: Config) -> Path:
     """Render the frame for `config` and write it to `config.output_path`.
 
-    Loads the snapshot's mosaic, samples an oriented oversampled crop, and
-    hands it to `LedGrid` for area-weighted downsampling + dot rendering.
-    Later slices will overlay the car silhouette and any wall margin here.
+    Loads the snapshot's mosaic, samples an oriented oversampled crop, hands
+    it to `LedGrid` for area-weighted downsampling + dot rendering, then
+    composites the procedural car silhouette into the cutout.
     """
     mosaic = Mosaic.load(config.snapshot.mosaic)
     width_leds, height_leds = led_grid_size(config.layout)
@@ -27,8 +28,33 @@ def render_to_png(config: Config) -> Path:
         viewport_m=config.snapshot.viewport_m,
         output_px=(width_leds * over, height_leds * over),
     )
-    img: Image.Image = render_frame(config, source)
+    frame = render_frame(config, source)
+    composed = _paste_car(frame, config)
+
     out_path = Path(config.output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(out_path, format="PNG")
+    composed.save(out_path, format="PNG")
     return out_path
+
+
+def _paste_car(frame: Image.Image, config: Config) -> Image.Image:
+    """Composite the procedural car silhouette over the cutout center."""
+    length_cm, width_cm = config.car.dimensions_cm
+    px_per_meter = config.render.scale_px_per_led / LED_PITCH_M
+    car = make_car(length_cm=length_cm, width_cm=width_cm, px_per_meter=px_per_meter)
+    if config.car.orientation_deg != 0.0:
+        car = car.rotate(
+            config.car.orientation_deg,
+            resample=Image.BICUBIC,
+            expand=True,
+        )
+
+    left, top, right, bottom = cutout_pixel_rect(config.layout, config.render.scale_px_per_led)
+    cutout_cx = (left + right + 1) // 2
+    cutout_cy = (top + bottom + 1) // 2
+    paste_left = cutout_cx - car.width // 2
+    paste_top = cutout_cy - car.height // 2
+
+    canvas = frame.copy()
+    canvas.paste(car, (paste_left, paste_top), mask=car)
+    return canvas

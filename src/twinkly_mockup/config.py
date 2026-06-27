@@ -8,6 +8,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 LEDS_PER_TILE = 6
+TILE_PITCH_M = 0.16
+LED_PITCH_M = TILE_PITCH_M / LEDS_PER_TILE
 
 
 class Layout(BaseModel):
@@ -50,6 +52,22 @@ class Render(BaseModel):
     mosaic_oversample: int = Field(default=8, ge=1)
 
 
+class CarSpec(BaseModel):
+    """Physical dimensions and on-wall orientation of the LEGO model car.
+
+    `dimensions_cm` is `(length, width)` of the model in centimeters; the
+    silhouette is drawn axis-aligned with the nose pointing image-up.
+    `orientation_deg` rotates the silhouette CCW by that many degrees when
+    `compose` drops it into the cutout — matches the project's ENU yaw
+    convention (CCW from +x).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    dimensions_cm: tuple[float, float] = (61.0, 25.0)
+    orientation_deg: float = 0.0
+
+
 class Snapshot(BaseModel):
     """Where the camera is looking, in the project's ENU frame.
 
@@ -72,6 +90,7 @@ class Config(BaseModel):
     layout: Layout
     render: Render = Field(default_factory=Render)
     snapshot: Snapshot
+    car: CarSpec = Field(default_factory=CarSpec)
     output_path: Path
 
 
