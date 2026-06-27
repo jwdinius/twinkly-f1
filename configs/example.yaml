@@ -13,4 +13,15 @@ layout:
 render:
   scale_px_per_led: 10
 
+# Snapshot is centered on the synthetic mosaic origin so all four quadrants
+# show through the LED frame. Viewport is 144 m × 96 m (matches the 9 × 6 outer
+# aspect at 16 m per tile, which is close to the real Twinkly Squares tile
+# pitch — see CLAUDE.md). Yaw=0 means car nose pointing east.
+snapshot:
+  mosaic: example_mosaic.yaml
+  x_m: 0.0
+  y_m: 0.0
+  yaw_rad: 0.0
+  viewport_m: [144.0, 96.0]
+
 output_path: out/example.png
