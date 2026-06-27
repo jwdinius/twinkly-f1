@@ -1,0 +1,3 @@
+[submodule "submodules/racetrack-mosaic"]
+	path = submodules/racetrack-mosaic
+	url = git@github.com:jwdinius/racetrack-mosaic.git
