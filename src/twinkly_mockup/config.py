@@ -47,6 +47,23 @@ class Render(BaseModel):
 
     scale_px_per_led: int = Field(default=10, ge=1)
     wall_color: tuple[int, int, int] = (240, 240, 235)
+    mosaic_oversample: int = Field(default=8, ge=1)
+
+
+class Snapshot(BaseModel):
+    """Where the camera is looking, in the project's ENU frame.
+
+    `mosaic` is the path to a mosaic sidecar YAML (see `mosaic.MosaicSidecar`),
+    resolved relative to the directory of the config that referenced it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mosaic: Path
+    x_m: float
+    y_m: float
+    yaw_rad: float = 0.0
+    viewport_m: tuple[float, float]
 
 
 class Config(BaseModel):
@@ -54,13 +71,28 @@ class Config(BaseModel):
 
     layout: Layout
     render: Render = Field(default_factory=Render)
+    snapshot: Snapshot
     output_path: Path
 
 
 def load_config(path: Path) -> Config:
-    """Load and validate a YAML config from disk."""
-    with Path(path).open("r") as f:
+    """Load and validate a YAML config from disk.
+
+    Relative paths inside the config (today: `snapshot.mosaic`) are resolved
+    against the config file's directory so configs are portable.
+    """
+    cfg_path = Path(path)
+    with cfg_path.open("r") as f:
         raw = yaml.safe_load(f)
     if not isinstance(raw, dict):
         raise ValueError(f"config at {path} must be a YAML mapping, got {type(raw).__name__}")
-    return Config.model_validate(raw)
+    cfg = Config.model_validate(raw)
+    if not cfg.snapshot.mosaic.is_absolute():
+        cfg = cfg.model_copy(
+            update={
+                "snapshot": cfg.snapshot.model_copy(
+                    update={"mosaic": (cfg_path.parent / cfg.snapshot.mosaic).resolve()}
+                ),
+            }
+        )
+    return cfg

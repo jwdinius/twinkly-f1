@@ -1,0 +1,10 @@
+# Sidecar for the synthetic example mosaic. The four colored quadrants make
+# the rotation / translation convention visible at a glance once the LED frame
+# samples it. Replace with a real Google Earth Pro export + lat/lon landmark
+# annotation when you acquire the Monaco mosaic.
+path: example_mosaic.png
+origin_lat: 0.0
+origin_lon: 0.0
+origin_px: [100.0, 100.0]   # pixel coords of the lat/lon origin (image center)
+m_per_px: 1.0               # 1 m per pixel → quadrants are 100 m × 100 m
+north_angle_deg: 0.0        # image is north-up
