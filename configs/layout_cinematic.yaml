@@ -1,0 +1,13 @@
+# Cinematic sizing-sweep candidate: outer 12 × 8 tiles, central 4 × 2 cutout.
+# 12 * 8 - 4 * 2 = 88 LED tiles (~$2,900). Cutout centered exactly on both
+# axes (12 - 4 = 8 → offset 4; 8 - 2 = 6 → offset 3).
+layout:
+  outer_tiles_w: 12
+  outer_tiles_h: 8
+  cutout_tiles_w: 4
+  cutout_tiles_h: 2
+  cutout_offset_x: 4
+  cutout_offset_y: 3
+
+render:
+  scale_px_per_led: 10

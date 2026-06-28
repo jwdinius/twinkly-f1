@@ -108,3 +108,128 @@ def test_help_works() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "render" in result.output
+
+
+def _write_layout_partial(dir_: Path, name: str, outer_w: int, outer_h: int) -> Path:
+    """Layout-only sweep YAML with a 1×1 cutout sized to fit outer_w/outer_h."""
+    path = dir_ / name
+    path.write_text(
+        "layout:\n"
+        f"  outer_tiles_w: {outer_w}\n"
+        f"  outer_tiles_h: {outer_h}\n"
+        "  cutout_tiles_w: 1\n"
+        "  cutout_tiles_h: 1\n"
+        f"  cutout_offset_x: {outer_w // 2}\n"
+        f"  cutout_offset_y: {outer_h // 2}\n"
+        "render:\n"
+        "  scale_px_per_led: 10\n"
+    )
+    return path
+
+
+def _write_snapshot_only_config(
+    tmp_path: Path, name: str, layout_config: str | None
+) -> Path:
+    """Snapshot YAML with no inline layout — relies on layout_config or CLI override."""
+    cfg = tmp_path / name
+    body = ""
+    if layout_config is not None:
+        body += f"layout_config: {layout_config}\n"
+    body += (
+        "snapshot:\n"
+        "  mosaic: fixture_mosaic.yaml\n"
+        "  x_m: 0.0\n"
+        "  y_m: 0.0\n"
+        "  yaw_rad: 0.0\n"
+        "car:\n"
+        "  dimensions_cm: [8.0, 4.0]\n"
+    )
+    cfg.write_text(body)
+    return cfg
+
+
+def _expected_grid_px(outer_w: int, outer_h: int, scale: int = 10) -> tuple[int, int]:
+    # Mirrors led.grid_pixel_size: leds + inter-tile gap pixels.
+    w = outer_w * 6 * scale + (outer_w - 1) * scale
+    h = outer_h * 6 * scale + (outer_h - 1) * scale
+    return w, h
+
+
+def test_render_all_writes_one_png_per_config(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_fixture_mosaic(tmp_path)
+    layout_a = _write_layout_partial(tmp_path, "layout_a.yaml", 3, 3)
+    cfg_a = _write_snapshot_only_config(tmp_path, "snap_a.yaml", "layout_a.yaml")
+    cfg_b = _write_snapshot_only_config(tmp_path, "snap_b.yaml", "layout_a.yaml")
+    out_dir = tmp_path / "out_render_all"
+
+    result = CliRunner().invoke(
+        app,
+        ["render-all", str(cfg_a), str(cfg_b), "--out", str(out_dir)],
+    )
+    assert result.exit_code == 0, result.output
+
+    a_png = out_dir / "snap_a.png"
+    b_png = out_dir / "snap_b.png"
+    assert a_png.exists() and b_png.exists()
+    expected = _expected_grid_px(3, 3)
+    with Image.open(a_png) as img:
+        assert img.size == expected
+    with Image.open(b_png) as img:
+        assert img.size == expected
+    # Unused layout reference unused — but we ran a_png; double-check layout.
+    assert layout_a.exists()
+
+
+def test_render_all_cross_product_with_layout_override(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_fixture_mosaic(tmp_path)
+    layout_small = _write_layout_partial(tmp_path, "layout_small.yaml", 3, 3)
+    layout_big = _write_layout_partial(tmp_path, "layout_big.yaml", 5, 4)
+    # Snapshot configs each reference layout_small as their default — overridden by CLI.
+    snap_x = _write_snapshot_only_config(tmp_path, "snap_x.yaml", "layout_small.yaml")
+    snap_y = _write_snapshot_only_config(tmp_path, "snap_y.yaml", "layout_small.yaml")
+    out_dir = tmp_path / "out_sweep"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "render-all",
+            str(snap_x),
+            str(snap_y),
+            "--layout",
+            str(layout_small),
+            "--layout",
+            str(layout_big),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    pairs = [
+        ("snap_x__layout_small.png", _expected_grid_px(3, 3)),
+        ("snap_x__layout_big.png", _expected_grid_px(5, 4)),
+        ("snap_y__layout_small.png", _expected_grid_px(3, 3)),
+        ("snap_y__layout_big.png", _expected_grid_px(5, 4)),
+    ]
+    for name, expected in pairs:
+        png = out_dir / name
+        assert png.exists(), f"missing {name}"
+        with Image.open(png) as img:
+            assert img.size == expected, f"{name} dims {img.size} != {expected}"
+
+
+def test_render_without_output_path_errors_helpfully(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_fixture_mosaic(tmp_path)
+    _write_layout_partial(tmp_path, "layout_a.yaml", 3, 3)
+    cfg = _write_snapshot_only_config(tmp_path, "snap.yaml", "layout_a.yaml")
+
+    result = CliRunner().invoke(app, ["render", str(cfg)])
+    assert result.exit_code == 2
+    assert "output_path" in result.output

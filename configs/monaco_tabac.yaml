@@ -1,0 +1,21 @@
+# Monaco snapshot: Tabac (Turn 12) leading into the Swimming Pool chicane.
+# Narrow walled corridor where the track is bracketed by Armco on both
+# sides. Picked to stress-test high-contrast edges (asphalt vs. white
+# barriers vs. blue Mediterranean) at the LED downsampler.
+#
+# (x_m, y_m, yaw_rad) are derived from configs/monaco_centerline.geojson via
+# scripts/derive_corner_poses.py — re-run that script if either the centerline
+# or the corner lat/lon hint changes (a regression test pins these values).
+# viewport_m is left unset so the layout sweep can derive a layout-appropriate
+# crop (see Config.viewport_m).
+layout_config: layout_standard.yaml
+
+snapshot:
+  mosaic: monaco_mosaic.yaml
+  x_m: -119.038
+  y_m: -161.636
+  yaw_rad: 0.579187
+
+car:
+  dimensions_cm: [61.0, 25.0]
+  orientation_deg: -90.0

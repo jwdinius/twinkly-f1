@@ -1,0 +1,17 @@
+# Monaco GP circuit — top-down satellite mosaic for the layout sweep.
+#
+# Built with submodules/racetrack-mosaic from Google Satellite tiles
+# (bbox 43.7320,7.4170 → 43.7415,7.4300, requested GSD 25 cm/px, source zoom 19,
+# 400 tiles). Reprojected to UTM Zone 32N so the PNG has isotropic
+# meters-per-pixel, then translated to PNG via gdal_translate. The
+# (origin_lat, origin_lon) anchor is the geographic center of the warped UTM
+# raster, sat at its center pixel — picked so ENU offsets to any Monaco corner
+# stay small and the local-Cartesian approximation holds across the whole image.
+# north_angle_deg = 0 because UTM 32N is grid-north-up (the convergence at
+# Monaco's longitude is sub-degree — negligible for a ~1 km mockup).
+path: monaco_mosaic.png
+origin_lat: 43.736872
+origin_lon: 7.423325
+origin_px: [2612.5, 2604.0]
+m_per_px: 0.215660
+north_angle_deg: 0.0

@@ -26,3 +26,9 @@ packages = ["src/twinkly_mockup"]
 dev = [
     "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+# Submodules ship their own PEP 723 / standalone test suites with their own
+# dependency stacks (e.g., racetrack-mosaic needs mercantile). They're not part
+# of this project's test surface — run them via their own README.
+norecursedirs = ["submodules", ".git", "out"]

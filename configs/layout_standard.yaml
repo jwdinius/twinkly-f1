@@ -1,0 +1,14 @@
+# Standard sizing-sweep candidate (PRD's suggested default): outer 9 × 6
+# tiles, central 4 × 2 cutout. 9 * 6 - 4 * 2 = 46 LED tiles (~$1,500).
+# Cutout sits one tile left-of-center (9 is odd, so an exact horizontal
+# center isn't possible).
+layout:
+  outer_tiles_w: 9
+  outer_tiles_h: 6
+  cutout_tiles_w: 4
+  cutout_tiles_h: 2
+  cutout_offset_x: 2
+  cutout_offset_y: 2
+
+render:
+  scale_px_per_led: 10

@@ -1,0 +1,21 @@
+# Monaco snapshot: Loews / Fairmont hairpin (Turn 6). Slowest corner in F1
+# (~50 km/h). Picked to stress-test yaw rotation (the car traverses ~180°
+# of heading within a tile or two of mosaic real-estate) and tight cutout
+# margins (the apex sits very close to the car silhouette).
+#
+# (x_m, y_m, yaw_rad) are derived from configs/monaco_centerline.geojson via
+# scripts/derive_corner_poses.py — re-run that script if either the centerline
+# or the corner lat/lon hint changes (a regression test pins these values).
+# viewport_m is left unset so the layout sweep can derive a layout-appropriate
+# crop (see Config.viewport_m).
+layout_config: layout_standard.yaml
+
+snapshot:
+  mosaic: monaco_mosaic.yaml
+  x_m: 516.688
+  y_m: 383.941
+  yaw_rad: -3.012137
+
+car:
+  dimensions_cm: [61.0, 25.0]
+  orientation_deg: -90.0

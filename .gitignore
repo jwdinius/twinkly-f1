@@ -9,3 +9,8 @@ __pycache__/
 
 # Rendered output
 out/
+
+# Large derived mosaic raster — regenerable via scripts/build_monaco_mosaic.sh.
+# The sidecar (configs/monaco_mosaic.yaml) IS tracked; the PNG it points at is
+# build output (~42 MB) and lives outside the repo.
+configs/monaco_mosaic.png
