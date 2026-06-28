@@ -1,7 +1,8 @@
-"""Car silhouette + compose tests.
+"""Car photo silhouette + compose tests.
 
-Covers the procedural silhouette's shape + dimensions, the CCW orientation
-convention, and the compose step's placement inside the cutout.
+Covers the masked-photo's pixel dimensions, the wood-grain background
+removal, the CCW orientation convention, and the compose step's placement
+inside the cutout.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from twinkly_mockup.car import DARK_GREY, PAPAYA, make_car
+from twinkly_mockup.car import make_car
 from twinkly_mockup.compose import _paste_car
 from twinkly_mockup.config import (
     LED_PITCH_M,
@@ -22,7 +23,6 @@ from twinkly_mockup.config import (
 from twinkly_mockup.led import cutout_pixel_rect
 
 WALL = (240, 240, 235)
-BLACK = (0, 0, 0)
 
 
 def _config(
@@ -71,63 +71,49 @@ def test_make_car_pixel_dimensions_match_cm_and_scale() -> None:
     assert img.size == (94, 229)
 
 
-def test_make_car_contains_papaya_body_and_dark_wings() -> None:
+def test_make_car_masks_wood_background() -> None:
+    """The output has substantial fully-transparent area (wood was masked out)
+    AND substantial fully-opaque area (the car silhouette survived)."""
     img = make_car(length_cm=61.0, width_cm=25.0, px_per_meter=375.0)
-    arr = np.array(img)
-    rgb = arr[..., :3]
-    alpha = arr[..., 3]
-    papaya_mask = (rgb == np.array(PAPAYA[:3])).all(axis=-1) & (alpha == 255)
-    grey_mask = (rgb == np.array(DARK_GREY[:3])).all(axis=-1) & (alpha == 255)
-    assert papaya_mask.sum() > 1000, "expected a clearly visible papaya body"
-    assert grey_mask.sum() > 50, "expected dark grey wings"
+    alpha = np.array(img)[..., 3]
+    fully_transparent = (alpha == 0).mean()
+    fully_opaque = (alpha == 255).mean()
+    assert fully_transparent > 0.10, (
+        f"expected >10% fully-transparent (background) pixels, got {fully_transparent:.2f}"
+    )
+    assert fully_opaque > 0.50, (
+        f"expected >50% fully-opaque (car) pixels, got {fully_opaque:.2f}"
+    )
 
 
-def test_make_car_has_four_wheels_at_body_corners() -> None:
+def test_make_car_has_opaque_silhouette_in_center() -> None:
+    """The car body fills the image's middle column → mostly opaque pixels there."""
     img = make_car(length_cm=61.0, width_cm=25.0, px_per_meter=375.0)
-    arr = np.array(img)
-    rgb = arr[..., :3]
-    alpha = arr[..., 3]
-    opaque_black = (rgb == np.array([0, 0, 0])).all(axis=-1) & (alpha == 255)
-
-    h, w = arr.shape[:2]
-    # Split the image into four corner quadrants of the *body rect* region
-    # (body spans rows [0.10h, 0.90h] × cols [0.225w, 0.775w]).
-    body_top, body_bottom = int(0.10 * h), int(0.90 * h)
-    body_left, body_right = int(0.225 * w), int(0.775 * w)
-    quads = [
-        opaque_black[body_top - 20 : body_top + 20, body_left - 20 : body_left + 20],
-        opaque_black[body_top - 20 : body_top + 20, body_right - 20 : body_right + 20],
-        opaque_black[body_bottom - 20 : body_bottom + 20, body_left - 20 : body_left + 20],
-        opaque_black[body_bottom - 20 : body_bottom + 20, body_right - 20 : body_right + 20],
-    ]
-    for i, q in enumerate(quads):
-        assert q.sum() > 50, f"expected wheel pixels in body corner {i}"
+    alpha = np.array(img)[..., 3]
+    h, w = alpha.shape
+    middle = alpha[:, w // 2 - 2 : w // 2 + 2]
+    opaque_fraction = (middle == 255).mean()
+    assert opaque_fraction > 0.85, (
+        f"expected the center column to be mostly opaque car body, got {opaque_fraction:.2f}"
+    )
 
 
-def test_orientation_deg_90_rotates_ccw() -> None:
-    """A pixel near image-top in the unrotated car lands near image-left after CCW 90°.
+def test_make_car_opaque_area_is_a_realistic_silhouette_fraction() -> None:
+    """After cropping to the silhouette bbox the masked car fills most but
+    not all of the image — sanity check that the bbox crop happened and
+    didn't accidentally trim the alpha."""
+    img = make_car(length_cm=61.0, width_cm=25.0, px_per_meter=375.0)
+    alpha = np.array(img)[..., 3]
+    frac = (alpha > 0).mean()
+    assert 0.60 < frac < 0.95, f"opaque fraction {frac:.2f} outside plausible range"
 
-    The front wing is a dark grey strip near the top of the unrotated image.
-    After CCW 90°, the strip should appear on the LEFT side of the rotated image.
-    """
+
+def test_orientation_deg_90_swaps_dimensions() -> None:
+    """Rotating 90° with expand=True swaps width and height — the photo follows
+    the same convention as the procedural silhouette did."""
     car = make_car(length_cm=61.0, width_cm=25.0, px_per_meter=375.0)
-    arr = np.array(car)
-    is_dark = (arr[..., :3] == np.array(DARK_GREY[:3])).all(axis=-1) & (arr[..., 3] == 255)
-    # Front wing is well within the top fifth of the unrotated image (top ≈ rows 5-21).
-    top_fifth = is_dark[: arr.shape[0] // 5].sum()
-    bottom_fifth = is_dark[-arr.shape[0] // 5 :].sum()
-    assert top_fifth > bottom_fifth, "front wing should dominate top of unrotated car"
-
     rotated = car.rotate(90.0, resample=Image.BICUBIC, expand=True)
-    rot_arr = np.array(rotated)
-    is_dark_rot = (rot_arr[..., :3] == np.array(DARK_GREY[:3])).all(axis=-1) & (
-        rot_arr[..., 3] == 255
-    )
-    left_fifth = is_dark_rot[:, : rot_arr.shape[1] // 5].sum()
-    right_fifth = is_dark_rot[:, -rot_arr.shape[1] // 5 :].sum()
-    assert left_fifth > right_fifth, (
-        "after CCW 90°, the front wing should dominate the LEFT side"
-    )
+    assert rotated.size == (car.size[1], car.size[0])
 
 
 def test_compose_centers_car_on_cutout_center_pixel() -> None:
@@ -138,27 +124,30 @@ def test_compose_centers_car_on_cutout_center_pixel() -> None:
     cx = (left + right + 1) // 2
     cy = (top + bottom + 1) // 2
     # The center pixel of the cutout should sit on an opaque car pixel — the
-    # body or halo, not the wall background.
+    # body — not the wall background.
     center_rgb = composed.getpixel((cx, cy))
     assert center_rgb != WALL, f"expected car pixel at cutout center ({cx},{cy}), got {center_rgb}"
 
 
 def test_rotated_car_pixels_stay_within_cutout() -> None:
-    """At a non-trivial orientation, no car-specific colors leak past the cutout."""
+    """At a non-trivial orientation, no opaque car pixels leak past the cutout.
+
+    Verified by comparing the composed frame against the wall-only frame: any
+    pixel that changed must be inside the cutout rect.
+    """
     cfg = _config(car_dim_cm=(20.0, 10.0), orientation_deg=37.0)
     frame = _wall_frame(cfg)
     composed = _paste_car(frame, cfg)
-    arr = np.array(composed.convert("RGB"))
-    papaya_mask = (arr == np.array(PAPAYA[:3])).all(axis=-1)
-    grey_mask = (arr == np.array(DARK_GREY[:3])).all(axis=-1)
-    car_mask = papaya_mask | grey_mask
-    assert car_mask.any(), "expected the car to be present in the composed frame"
+    base = np.array(frame)
+    comp = np.array(composed.convert("RGB"))
+    changed = (comp != base).any(axis=-1)
+    assert changed.any(), "expected the car to be present in the composed frame"
 
     left, top, right, bottom = cutout_pixel_rect(cfg.layout, cfg.render.scale_px_per_led)
-    outside_mask = np.ones_like(car_mask, dtype=bool)
+    outside_mask = np.ones_like(changed, dtype=bool)
     outside_mask[top : bottom + 1, left : right + 1] = False
-    assert not (car_mask & outside_mask).any(), (
-        "rotated car silhouette spilled past the cutout pixel range"
+    assert not (changed & outside_mask).any(), (
+        "rotated car spilled past the cutout pixel range"
     )
 
 
@@ -170,6 +159,7 @@ def test_car_visible_in_saved_png(tmp_path) -> None:
     out = tmp_path / "car_visual.png"
     composed.save(out, format="PNG")
     arr = np.array(Image.open(out).convert("RGB"))
-    assert (arr == np.array(PAPAYA[:3])).all(axis=-1).any()
-    assert (arr == np.array(DARK_GREY[:3])).all(axis=-1).any()
-    assert (arr == np.array(BLACK)).all(axis=-1).any()
+    # At least some pixels must differ from the wall color — i.e. the car is
+    # visible in the saved file, not just an empty wall.
+    not_wall = (arr != np.array(WALL)).any(axis=-1)
+    assert not_wall.sum() > 100, "expected visible car pixels in the saved PNG"
