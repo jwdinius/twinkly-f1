@@ -11,12 +11,19 @@ LEDS_PER_TILE = 6
 TILE_PITCH_M = 0.16
 LED_PITCH_M = TILE_PITCH_M / LEDS_PER_TILE
 
-# Real-world track meters mapped to one Twinkly tile in the stylized mockup.
-# This is decoupled from the LEGO car's 1:9.2 physical scale (the stylized
-# mapping shows more track than the literal scale would). Used when a snapshot
+# Scale ratio between the LEGO Technic MCL39 and a real F1 car, anchored to
+# car width: 25 cm LEGO vs 2.10 m real → 0.25 / 2.10 ≈ 1 : 8.4.
+LEGO_CAR_WIDTH_M = 0.25
+REAL_F1_CAR_WIDTH_M = 2.10
+LEGO_SCALE = LEGO_CAR_WIDTH_M / REAL_F1_CAR_WIDTH_M  # ≈ 0.119
+
+# Real-world track meters mapped to one Twinkly tile.
+# Derived so the wall view shares the LEGO car's 1:8.4 scale — i.e. each cm of
+# wall represents 8.4 cm of real track, so the asphalt around the car is
+# geometrically consistent with the model on top of it. Used when a snapshot
 # omits viewport_m so layout sweeps render layout-appropriate coverage instead
 # of the same crop at varying LED densities.
-WALL_TILE_VIEW_M = 16.0
+WALL_TILE_VIEW_M = TILE_PITCH_M / LEGO_SCALE  # ≈ 1.344 m per tile
 
 
 class Layout(BaseModel):

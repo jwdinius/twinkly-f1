@@ -1,3 +1,6 @@
 [submodule "submodules/racetrack-mosaic"]
 	path = submodules/racetrack-mosaic
 	url = git@github.com:jwdinius/racetrack-mosaic.git
+[submodule "submodules/f1-circuits"]
+	path = submodules/f1-circuits
+	url = https://github.com/bacinger/f1-circuits.git

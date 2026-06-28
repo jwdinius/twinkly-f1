@@ -53,9 +53,13 @@ def test_monaco_snapshot_composes_with_default_layout(name: str) -> None:
         9 * WALL_TILE_VIEW_M,
         6 * WALL_TILE_VIEW_M,
     )
-    # Car defaults: MCL39 dimensions + 90° rotation so it lies across the cutout.
+    # Car: MCL39 dimensions, mounted nose-right (orientation_deg=-90) so the
+    # silhouette lies along the 4×2 cutout's long axis with the front facing
+    # into the wider wall area. The snapshot's yaw_rad is biased by +π/2 vs
+    # the raw track tangent so image-RIGHT ends up aligned with the tangent —
+    # see scripts/derive_corner_poses.py.
     assert cfg.car.dimensions_cm == (61.0, 25.0)
-    assert cfg.car.orientation_deg == 90.0
+    assert cfg.car.orientation_deg == -90.0
 
 
 @pytest.mark.parametrize("snap", MONACO_SNAPSHOTS)
