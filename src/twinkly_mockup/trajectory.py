@@ -12,14 +12,18 @@ Schema:
 * ``t`` is in seconds, strictly increasing, with uniform spacing ``dt``.
 * ``x, y`` are in meters in the project's ENU frame (``+x`` east, ``+y``
   north).
-* ``yaw`` is in radians CCW from ``+x``. Each value must lie in
-  ``[-2π, 2π]`` and the full span ``max(yaw) - min(yaw)`` must not exceed
-  ``2π`` — i.e. the trajectory covers at most one revolution. This lets
-  ``sample_at`` linearly interpolate yaw without worrying about wrap-around;
-  CSV producers are responsible for emitting an unwound sequence.
+* ``yaw`` is in radians CCW from ``+x``. Each value must lie in ``[-2π, 2π]``
+  (a loose sanity bound catching e.g. degree-valued input); there is **no**
+  span / single-revolution constraint. A full closed lap nets a full 2π and
+  backtracks through the hairpin/chicanes, so producers may emit any wrapped
+  sequence — ``import-lap`` emits ``[-π, π]`` with no global unwinding. See
+  ADR-0001.
 
-Sampling at non-knot times is linear interpolation between adjacent knots;
-times outside the covered range clamp to the first / last knot.
+Sampling ``x, y`` at non-knot times is linear interpolation between adjacent
+knots. ``yaw`` is interpolated as a **unit vector** (interpolate ``cos``/``sin``
+then ``atan2``), so it is wrap-safe by construction and takes the short way
+across the ±π seam. Times outside the covered range clamp to the first / last
+knot.
 """
 
 from __future__ import annotations
@@ -32,7 +36,6 @@ import numpy as np
 
 REQUIRED_COLUMNS: tuple[str, ...] = ("t", "x", "y", "yaw")
 YAW_ABS_LIMIT: float = 2.0 * math.pi
-YAW_SPAN_LIMIT: float = 2.0 * math.pi
 DT_RELATIVE_TOLERANCE: float = 1e-6
 
 
@@ -118,12 +121,16 @@ class Trajectory:
     def sample_at(self, t: float) -> tuple[float, float, float]:
         """Return ``(x, y, yaw)`` at time ``t``.
 
-        Linearly interpolates between knots; clamps to the first / last knot
-        for times outside the covered range.
+        ``x, y`` linearly interpolate between knots. ``yaw`` interpolates as a
+        unit vector (``cos``/``sin`` then ``atan2``), so it is wrap-safe and
+        crosses the ±π seam the short way. Clamps to the first / last knot for
+        times outside the covered range.
         """
         x = float(np.interp(t, self._t, self._x))
         y = float(np.interp(t, self._t, self._y))
-        yaw = float(np.interp(t, self._t, self._yaw))
+        cos_y = float(np.interp(t, self._t, np.cos(self._yaw)))
+        sin_y = float(np.interp(t, self._t, np.sin(self._yaw)))
+        yaw = float(math.atan2(sin_y, cos_y))
         return x, y, yaw
 
 
@@ -149,16 +156,11 @@ def _validate_monotone_uniform_t(t: np.ndarray, csv_path: Path) -> float:
 
 
 def _validate_yaw_range(yaw: np.ndarray, csv_path: Path) -> None:
+    # No span / single-revolution constraint: sample_at is wrap-safe (ADR-0001).
+    # Only a loose absolute bound to catch e.g. degree-valued input.
     if np.any(np.abs(yaw) > YAW_ABS_LIMIT):
         bad_idx = int(np.argmax(np.abs(yaw) > YAW_ABS_LIMIT))
         raise TrajectorySchemaError(
             f"trajectory CSV at {csv_path} has yaw out of range: "
             f"yaw[{bad_idx}]={yaw[bad_idx]} outside [-2π, 2π]"
-        )
-    span = float(yaw.max() - yaw.min())
-    if span > YAW_SPAN_LIMIT:
-        raise TrajectorySchemaError(
-            f"trajectory CSV at {csv_path} covers more than one revolution: "
-            f"yaw span {span} > 2π. Producers must emit an unwound sequence "
-            f"that stays within a single revolution."
         )

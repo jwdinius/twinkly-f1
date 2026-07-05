@@ -161,9 +161,9 @@ def test_yaw_out_of_range_rejected(tmp_path: Path) -> None:
     assert "yaw out of range" in str(exc.value)
 
 
-def test_yaw_span_over_one_revolution_rejected(tmp_path: Path) -> None:
-    """span(yaw) > 2π means the producer didn't unwind — sample_at would
-    wrap-around incorrectly during interpolation."""
+def test_yaw_span_over_one_revolution_accepted(tmp_path: Path) -> None:
+    """A closed lap nets a full 2π and backtracks, so span(yaw) may exceed 2π.
+    ADR-0001: sample_at is wrap-safe, so this loads rather than being rejected."""
     path = tmp_path / "yaw_wrap.csv"
     _write_csv(
         path,
@@ -175,9 +175,25 @@ def test_yaw_span_over_one_revolution_rejected(tmp_path: Path) -> None:
             [0.03, 3.0, 0.0, math.pi + 0.5],  # span = 2π + 0.5
         ],
     )
-    with pytest.raises(TrajectorySchemaError) as exc:
-        Trajectory.load(path)
-    assert "more than one revolution" in str(exc.value)
+    traj = Trajectory.load(path)  # no raise
+    assert traj.dt == pytest.approx(0.01)
+
+
+def test_sample_at_interpolates_across_pi_seam_short_way(tmp_path: Path) -> None:
+    """Adjacent knots straddling the ±π seam interpolate the short way (through
+    ±π), not the long way through 0 that naive linear interpolation would take."""
+    path = _write_csv(
+        tmp_path / "seam.csv",
+        list(REQUIRED_COLUMNS),
+        [
+            [0.00, 0.0, 0.0, 3.0],   # just below +π
+            [0.01, 1.0, 0.0, -3.0],  # just above -π
+        ],
+    )
+    traj = Trajectory.load(path)
+    # Midpoint of 3.0 and -3.0 the short way is ±π (≈3.1416), not 0.
+    _, _, yaw_mid = traj.sample_at(0.005)
+    assert abs(abs(yaw_mid) - math.pi) < 1e-9
 
 
 def test_full_single_revolution_accepted(tmp_path: Path) -> None:
