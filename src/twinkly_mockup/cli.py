@@ -8,6 +8,8 @@ import typer
 
 from .compose import render_to_png
 from .config import load_config
+from .import_lap import DEFAULT_DT_S, import_lap
+from .trajectory import Trajectory
 
 app = typer.Typer(
     help="Twinkly Squares wall-display mockup renderer.",
@@ -95,6 +97,58 @@ def render_all(
             config = config.model_copy(update={"output_path": out_path})
             render_to_png(config)
             typer.echo(f"wrote {out_path}")
+
+
+@app.command("import-lap")
+def import_lap_cmd(
+    native_csv: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Native fastest-lap lap CSV with columns time,x,y,yaw.",
+    ),
+    circuit: Path = typer.Option(
+        ...,
+        "--circuit",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="fastest-lap circuit XML carrying <GPS_parameters> (e.g. monaco.xml).",
+    ),
+    mosaic: Path = typer.Option(
+        ...,
+        "--mosaic",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Mosaic sidecar YAML defining the mockup ENU origin.",
+    ),
+    out: Path = typer.Option(
+        ...,
+        "--out",
+        dir_okay=False,
+        help="Output trajectory CSV path.",
+    ),
+    dt: float = typer.Option(
+        DEFAULT_DT_S,
+        "--dt",
+        min=1e-6,
+        help="Uniform timestep (seconds) for the resampled trajectory.",
+    ),
+) -> None:
+    """Bridge a fastest-lap native lap into the renderer trajectory CSV.
+
+    Crosses the solver's coordinate frame into the mockup ENU frame via lat/lon
+    (from the circuit XML's GPS_parameters + the mosaic origin) and resamples to
+    a uniform `dt`, then validates the result against the trajectory schema.
+    """
+    out_path = import_lap(native_csv, circuit, mosaic, out, dt=dt)
+    traj = Trajectory.load(out_path)
+    typer.echo(
+        f"wrote {out_path} ({len(traj.t)} samples, dt={traj.dt:.4g}s, "
+        f"duration={traj.duration:.3f}s)"
+    )
 
 
 @app.command()
