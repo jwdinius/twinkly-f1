@@ -32,6 +32,24 @@ optimal trajectory computed by [`fastest-lap`](submodules/fastest-lap):
    the traced circuit and emits the minimum-lap-time line, which
    `twinkly-mockup import-lap` converts into the renderer's trajectory CSV.
 
+   The solver is driven end-to-end by `twinkly-mockup solve-lap` (host-side
+   orchestration; the solver itself never runs natively — [ADR-0002](docs/adr/0002-solver-runs-only-in-container.md)).
+   It builds the run image, compiles `libfastestlapc`, and runs the mounted
+   driver ([`docker/solve_lap.py`](docker/)), which writes the circuit XML +
+   native `time,x,y,yaw` CSV. Configure the request in
+   [`configs/monaco_solver.yaml`](configs/monaco_solver.yaml):
+
+   ```
+   twinkly-mockup solve-lap --config configs/monaco_solver.yaml --out artifacts/monaco --dry-run
+   twinkly-mockup solve-lap --config configs/monaco_solver.yaml --out artifacts/monaco
+   twinkly-mockup import-lap artifacts/monaco/lap.csv \
+     --circuit artifacts/monaco/monaco.xml --mosaic configs/monaco_mosaic.yaml \
+     --out artifacts/monaco/trajectory.csv
+   ```
+
+   `--dry-run` prints the Docker commands without executing; re-run with
+   `--no-build --no-compile` to skip the slow image/compile stages once done.
+
 ## Submodules
 
 - **[submodules/racetrack-mosaic](submodules/racetrack-mosaic)** — builds the

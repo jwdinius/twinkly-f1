@@ -1,0 +1,21 @@
+# Monaco optimal-lap solve request, consumed by `twinkly-mockup solve-lap`
+# (see src/twinkly_mockup/solver.py and ADR-0002).
+#
+# left_kml/right_kml are the hand-traced track-limit KMLs — trace them in Google
+# Earth Pro over a racetrack-mosaic KMZ backdrop (see the racetrack-mosaic
+# README's "tracing track limits for a lap optimizer" section). They do NOT
+# exist until that manual step is done; the solver run is blocked on them.
+#
+# Paths are relative to this file's directory. The two KMLs must live under this
+# directory (it is mounted read-only into the container).
+left_kml: monaco_left.kml
+right_kml: monaco_right.kml
+
+# Vehicle model driven around the lap. limebeer-2014-f1 is the fastest-lap F1
+# default (ADR-0002 / the optimal-lap plan).
+vehicle_xml: ../submodules/fastest-lap/database/vehicles/f1/limebeer-2014-f1.xml
+
+# Discretisation of the circuit for the optimiser.
+number_of_elements: 750
+is_closed: true
+mode: equally-spaced

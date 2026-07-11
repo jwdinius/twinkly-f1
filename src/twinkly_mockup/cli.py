@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import typer
@@ -9,6 +10,7 @@ import typer
 from .compose import render_to_png
 from .config import load_config
 from .import_lap import DEFAULT_DT_S, import_lap
+from .solver import load_solver_config, solve_lap
 from .trajectory import Trajectory
 
 app = typer.Typer(
@@ -148,6 +150,63 @@ def import_lap_cmd(
     typer.echo(
         f"wrote {out_path} ({len(traj.t)} samples, dt={traj.dt:.4g}s, "
         f"duration={traj.duration:.3f}s)"
+    )
+
+
+@app.command("solve-lap")
+def solve_lap_cmd(
+    config_path: Path = typer.Option(
+        ...,
+        "--config",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Solver config YAML (e.g. configs/monaco_solver.yaml).",
+    ),
+    out: Path = typer.Option(
+        ...,
+        "--out",
+        file_okay=False,
+        help="Output directory for the circuit XML + native lap CSV.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the Docker commands that would run, without executing them.",
+    ),
+    build: bool = typer.Option(
+        True,
+        "--build/--no-build",
+        help="Build the base + run images first (skip if already built).",
+    ),
+    compile: bool = typer.Option(
+        True,
+        "--compile/--no-compile",
+        help="Compile libfastestlapc first (skip if already compiled).",
+    ),
+) -> None:
+    """Solve the Monaco optimal lap in Docker (ADR-0002).
+
+    Runs the fastest-lap solver entirely inside its container and writes the
+    circuit XML + a native `time,x,y,yaw` CSV into `--out`. Feed those to
+    `import-lap` to produce the renderer trajectory CSV. Requires Docker and the
+    hand-traced track-limit KMLs referenced by the config.
+    """
+    config = load_solver_config(config_path)
+    config_dir = config_path.resolve().parent
+
+    if dry_run:
+        typer.echo("# dry run — commands that would execute:")
+        runner = lambda cmd: typer.echo(shlex.join(cmd))  # noqa: E731
+        solve_lap(config, config_dir, out, runner=runner, build=build, compile=compile)
+        return
+
+    artifacts = solve_lap(config, config_dir, out, build=build, compile=compile)
+    typer.echo(f"wrote {artifacts.circuit_xml} and {artifacts.native_csv}")
+    typer.echo(
+        "next: twinkly-mockup import-lap "
+        f"{artifacts.native_csv} --circuit {artifacts.circuit_xml} "
+        f"--mosaic configs/monaco_mosaic.yaml --out <trajectory.csv>"
     )
 
 
