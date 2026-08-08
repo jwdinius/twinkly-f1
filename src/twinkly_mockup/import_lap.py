@@ -11,10 +11,12 @@ solver only emits files. Two transforms live here:
        x = earth_radius · cos(reference_latitude) · (longitude − origin_longitude)
        y = earth_radius · (latitude  − origin_latitude)
 
-   (angle differences in radians). We invert it to lat/lon, then re-project into
-   the mockup ENU frame around the mosaic origin — the same equirectangular
-   projection `centerline.py` uses. Routing through lat/lon absorbs the differing
-   origins and earth radii with no assumption about the solver's axis handedness.
+   (angle differences in radians — note the solver's frame is *spherical*, one
+   radius for both axes). We invert it to lat/lon, then re-project into the
+   mockup ENU frame around the mosaic origin through the shared `FlatEnu`, the
+   same projection `centerline.py` uses. Routing through lat/lon absorbs the
+   differing origins, radii and axis scales with no assumption about the
+   solver's axis handedness.
    Verified against the vendored database tracks: fastest-lap is north-up ENU
    (`+y` = north, yaw CCW from `+x`), the same handedness as the mockup, so no
    axis flip is needed — the "y-down" worry from planning did not hold.
@@ -40,7 +42,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from .centerline import EARTH_RADIUS_M  # WGS84; the mockup ENU projection radius
+from .enu import FlatEnu
 from .mosaic import MosaicSidecar
 from .trajectory import REQUIRED_COLUMNS, Trajectory
 
@@ -177,10 +179,7 @@ def native_to_mockup_enu(
         x / (gps.earth_radius * math.cos(math.radians(gps.reference_lat)))
     )
     # 2. Re-project into the mockup ENU frame (identical to centerline.py).
-    cos_lat0 = math.cos(math.radians(origin_lat))
-    x_m = np.radians(lon - origin_lon) * cos_lat0 * EARTH_RADIUS_M
-    y_m = np.radians(lat - origin_lat) * EARTH_RADIUS_M
-    return x_m, y_m
+    return FlatEnu.at(origin_lat, origin_lon).to_enu(lat, lon)
 
 
 def native_yaw_to_mockup(
@@ -188,12 +187,20 @@ def native_yaw_to_mockup(
 ) -> np.ndarray:
     """Map solver heading into the mockup frame.
 
-    Both frames are anisotropic equirectangular projections sharing lat/lon, so
-    a heading maps by the ratio of their longitude scale factors. For Monaco
-    both reference latitudes ≈ 43.7°, making ``k ≈ 1`` (identity) — but compute
-    it exactly so the bridge stays correct for any origin.
+    Both frames are flat tangent planes over the same lat/lon, so a heading maps
+    by the ratio of their per-axis scale factors. The old form was
+    ``cos(origin_lat) / cos(reference_lat)`` — correct only while both frames
+    were spherical with the same radius, which made the two *north* scales
+    cancel. The mockup's north scale is now the meridional radius `M(φ0)` and
+    the solver's is still its own `earth_radius`, so they no longer do; the
+    general ratio is computed by `FlatEnu.heading_from`.
+
+    The correction is small (`M/N ≈ 1.0035` at Monaco) but it is the same shape
+    as the position error #23 removes, and leaving it would put the heading back
+    on the model the positions just left.
     """
-    k = math.cos(math.radians(origin_lat)) / math.cos(math.radians(gps.reference_lat))
+    solver_east_per_rad = gps.earth_radius * math.cos(math.radians(gps.reference_lat))
+    k = FlatEnu.at(origin_lat, 0.0).heading_from(solver_east_per_rad, gps.earth_radius)
     return np.arctan2(np.sin(yaw), k * np.cos(yaw))
 
 

@@ -23,7 +23,6 @@ guard.
 from __future__ import annotations
 
 import hashlib
-import math
 from pathlib import Path
 
 import numpy as np
@@ -277,35 +276,60 @@ def test_affine_residual_over_full_image_is_subpixel(name: str) -> None:
     )
 
 
-@pytest.mark.parametrize("name", SHIPPED)
-def test_spherical_flat_enu_is_the_remaining_registration_error(name: str) -> None:
-    """Characterisation, not endorsement — pins an error this slice does not fix.
-
-    `centerline.py` / `import_lap.py` build ENU as `(lon−lon0)·cos(lat0)·a` and
-    `(lat−lat0)·a`, which stretches east and squeezes north by ~±0.17% relative
-    to true distances. That anisotropy is not a rotation-plus-scale, so it
-    survives ADR-0004 intact: ~1.4 m at the image corners, versus the ~30 m the
-    convergence correction removes. Well inside a 12 m track width, but no
-    longer negligible next to the sub-pixel claim above. Tracked in #23.
-    """
-    sidecar = _load_shipped(name)
-    corners = _image_corner_enu(sidecar)
-    earth_radius_m = 6_378_137.0
+def _lonlat_px_error_m(mosaic: Mosaic, lons, lats) -> np.ndarray:
+    """Error of the whole lon/lat → pixel path, in metres, against `pyproj`."""
+    sidecar = mosaic.sidecar
+    ox, oy = sidecar.origin_px
+    m = sidecar.m_per_px
     to_utm = pyproj.Transformer.from_crs(
         "EPSG:4326", f"EPSG:{sidecar.utm_epsg}", always_xy=True
     )
+    east, north = (np.asarray(v) for v in to_utm.transform(lons, lats))
     east0, north0 = to_utm.transform(sidecar.origin_lon, sidecar.origin_lat)
-    cos_lat0 = math.cos(math.radians(sidecar.origin_lat))
-    e = np.array([p[0] for p in corners])
-    n = np.array([p[1] for p in corners])
-    east, north = to_utm.transform(
-        sidecar.origin_lon + np.degrees(e / (earth_radius_m * cos_lat0)),
-        sidecar.origin_lat + np.degrees(n / earth_radius_m),
+    want = np.column_stack([ox + (east - east0) / m, oy - (north - north0) / m])
+    got = np.array(
+        [mosaic.lonlat_to_px(lon, lat) for lon, lat in zip(lons, lats, strict=True)]
     )
-    err = _px_error_m(
-        _mosaic(sidecar), corners, np.column_stack([east - east0, north - north0])
+    return np.hypot(*(got - want).T) * m
+
+
+@pytest.mark.parametrize("name", SHIPPED)
+def test_lonlat_to_px_is_subpixel_at_image_corners(name: str) -> None:
+    """The *whole* projection, corner to corner — flat-ENU and the grid affine.
+
+    `test_projection_matches_pyproj_at_image_corners` above checks only the
+    second half, fed true-ENU offsets. What the tracer and the renderer actually
+    run is lon/lat straight through to pixels, and until #23 the first half was
+    a sphere of radius `a`: that stretched east by +0.16% and squeezed north by
+    −0.19%, an *anisotropic* scale which ADR-0004's rotation-plus-scale affine
+    cannot absorb. It reached the corners as ~1.4 m — 7 px — while the pixel math
+    in isolation still measured sub-pixel.
+
+    With the prime-vertical and meridional radii at the origin latitude the same
+    corners come in under one pixel, so "sub-pixel" is now a property of the
+    pipeline rather than of one half of it.
+    """
+    sidecar = _load_shipped(name)
+    mosaic = _mosaic(sidecar)
+    lonlat = [mosaic.enu.to_lonlat(e, n) for e, n in _image_corner_enu(sidecar)]
+    err = _lonlat_px_error_m(
+        mosaic, [float(p[0]) for p in lonlat], [float(p[1]) for p in lonlat]
     )
-    assert 0.5 < err.max() < 3.0, f"{name}: spherical-ENU residual {err.max():.4f} m"
+    assert err.max() < sidecar.m_per_px, (
+        f"{name}: lon/lat→px error {err.max():.4f} m "
+        f"exceeds one pixel ({sidecar.m_per_px:.4f} m)"
+    )
+
+
+@pytest.mark.parametrize("name", SHIPPED)
+def test_lonlat_px_round_trip_closes(name: str) -> None:
+    """`px_to_lonlat` is the exact inverse of `lonlat_to_px`, corners included."""
+    sidecar = _load_shipped(name)
+    mosaic = _mosaic(sidecar)
+    for e, n in _image_corner_enu(sidecar) + [(0.0, 0.0), (17.0, -430.0)]:
+        lon, lat = (float(v) for v in mosaic.enu.to_lonlat(e, n))
+        back = mosaic.px_to_lonlat(mosaic.lonlat_to_px(lon, lat))
+        assert back == pytest.approx((lon, lat), abs=1e-12)
 
 
 # --- grid_scale reaches the sampling affine ---------------------------------
@@ -349,13 +373,13 @@ def test_sample_applies_grid_scale() -> None:
 
 # --- the shipped snapshot, pinned against the re-registered frame ------------
 
-# Recaptured when the Monaco sidecar was re-emitted from the UTM geotransform:
-# θ moved from 0° to −1.090176° and the origin from the hand-rounded
-# (43.736872, 7.423325) to the raster centre's (43.736871113, 7.423323737), so
-# the Massenet crop legitimately moved. The digest is the pin that a *later*
-# change does not move it again unnoticed.
+# Recaptured twice in quick succession: once when the Monaco sidecar was
+# re-emitted from the UTM geotransform (#16), and again when flat-ENU moved off
+# a sphere of radius `a` onto the radii of curvature (#23). Both legitimately
+# move the Massenet crop. The digest is the pin that a *later* change does not
+# move it again unnoticed.
 MONACO_MASSENET_SAMPLE_SHA256 = (
-    "b50f6a5a13fd92722f725176f25d0aa98a4cf67f9abf4b12bb14d12b5a6cd9b5"
+    "446c1406b8496a986f88d9e29fac02cbe3be9162051b83fcb825973e89d6658e"
 )
 
 

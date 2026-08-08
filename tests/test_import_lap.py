@@ -31,7 +31,8 @@ FL_ORIGIN_LON = 7.42
 FL_REF_LAT = 43.73
 
 # --- mockup ENU fixture parameters (deliberately a *different* origin) -------
-WGS84_R = 6378137.0
+WGS84_A = 6378137.0
+WGS84_F = 1.0 / 298.257223563
 MOCK_ORIGIN_LAT = 43.736872
 MOCK_ORIGIN_LON = 7.423325
 
@@ -42,12 +43,29 @@ def _latlon_to_fl(lat: float, lon: float) -> tuple[float, float]:
     return x, y
 
 
+def _mockup_scales(olat: float = MOCK_ORIGIN_LAT) -> tuple[float, float]:
+    """WGS84 radii of curvature, spelled out rather than imported.
+
+    The point of these fixtures is that the bridge lands on independently
+    computed coordinates, so the east/north scales are rebuilt from the
+    ellipsoid here instead of reusing `FlatEnu`'s arithmetic.
+    """
+    e2 = WGS84_F * (2.0 - WGS84_F)
+    phi = math.radians(olat)
+    w2 = 1.0 - e2 * math.sin(phi) ** 2
+    prime_vertical = WGS84_A / math.sqrt(w2)
+    meridional = WGS84_A * (1.0 - e2) / (w2 * math.sqrt(w2))
+    return prime_vertical * math.cos(phi), meridional
+
+
 def _latlon_to_mockup(
     lat: float, lon: float, olat: float = MOCK_ORIGIN_LAT, olon: float = MOCK_ORIGIN_LON
 ) -> tuple[float, float]:
-    x = math.radians(lon - olon) * math.cos(math.radians(olat)) * WGS84_R
-    y = math.radians(lat - olat) * WGS84_R
-    return x, y
+    east_per_rad, north_per_rad = _mockup_scales(olat)
+    return (
+        math.radians(lon - olon) * east_per_rad,
+        math.radians(lat - olat) * north_per_rad,
+    )
 
 
 def _write_circuit_xml(
@@ -137,9 +155,18 @@ def test_frame_crossing_round_trips_to_mockup_enu(tmp_path: Path) -> None:
         assert y == pytest.approx(exp_y, abs=1e-6)
 
 
-def test_yaw_identity_when_reference_latitudes_match(tmp_path: Path) -> None:
-    """With ref_lat == mockup origin_lat the heading scale factor k == 1, so
-    output yaw is just the wrapped input heading."""
+def test_yaw_carries_the_frames_axis_ratio_even_at_a_matched_reference_latitude(
+    tmp_path: Path,
+) -> None:
+    """Matching latitudes no longer make the heading map an identity.
+
+    The solver frame is spherical — one radius on both axes — while the mockup
+    frame scales east by `N·cos φ` and north by `M`. So even with
+    `ref_lat == origin_lat` the two disagree by `N/M` (~1.0035 here), and a
+    heading crossing between them picks that up. Under the old spherical mockup
+    model the north scales cancelled and this was exactly identity; asserting
+    the ratio rather than identity is what pins the fix.
+    """
     native = _write_native_csv(tmp_path, _native_rows())
     circuit = _write_circuit_xml(tmp_path, ref_lat=MOCK_ORIGIN_LAT)
     sidecar = _write_sidecar(tmp_path)
@@ -148,10 +175,16 @@ def test_yaw_identity_when_reference_latitudes_match(tmp_path: Path) -> None:
     import_lap(native, circuit, sidecar, out, dt=_DT)
     traj = Trajectory.load(out)
 
+    east_per_rad, north_per_rad = _mockup_scales()
+    solver_east_per_rad = FL_R * math.cos(math.radians(MOCK_ORIGIN_LAT))
+    k = (east_per_rad / solver_east_per_rad) / (north_per_rad / FL_R)
+    assert k == pytest.approx(1.0035, abs=1e-4)
+
     for i, yaw_in in enumerate(_YAWS):
         _, _, yaw_out = traj.sample_at(i * _DT)
-        expected = math.atan2(math.sin(yaw_in), math.cos(yaw_in))
-        assert yaw_out == pytest.approx(expected, abs=1e-9)
+        expected = math.atan2(math.sin(yaw_in), k * math.cos(yaw_in))
+        # Tolerance is the CSV's own `%.9g` write precision, not the maths'.
+        assert yaw_out == pytest.approx(expected, abs=1e-8)
         assert -math.pi <= yaw_out <= math.pi
 
 

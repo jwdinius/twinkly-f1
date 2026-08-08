@@ -3,7 +3,7 @@
 Two layers:
 
 1. **Synthetic geometry** — square / closed loop at a known origin, exercising
-   the equirectangular projection, vertex snap, and central-difference
+   the flat-ENU projection, vertex snap, and central-difference
    tangent. Catches sign errors and the open/closed-loop seam bug.
 
 2. **Monaco regression pins** — the three Monaco snapshot YAMLs encode poses
@@ -21,7 +21,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from twinkly_mockup.centerline import EARTH_RADIUS_M, Centerline, Pose
+from twinkly_mockup.centerline import Centerline, Pose
+from twinkly_mockup.enu import FlatEnu
 from twinkly_mockup.config import load_config
 
 CONFIGS = Path(__file__).resolve().parent.parent / "configs"
@@ -50,22 +51,24 @@ def _write_geojson(
 
 
 def test_projection_east_unit_step(tmp_path: Path) -> None:
-    """A 1° longitude step east of origin lands on +x_ENU = cos(lat) * R * radians."""
+    """A 1° longitude step east lands on the prime-vertical east scale, not `a`."""
     origin_lat, origin_lon = 43.0, 7.0
     path = _write_geojson(tmp_path, [(7.0, 43.0), (8.0, 43.0)])
     centerline = Centerline.load_geojson(path, origin_lat=origin_lat, origin_lon=origin_lon)
-    expected_x = math.radians(1.0) * math.cos(math.radians(origin_lat)) * EARTH_RADIUS_M
+    frame = FlatEnu.at(origin_lat, origin_lon)
+    expected_x = math.radians(1.0) * frame.m_per_rad_east
     assert centerline.x[0] == pytest.approx(0.0, abs=1e-9)
     assert centerline.x[1] == pytest.approx(expected_x, rel=1e-9)
     assert centerline.y[1] == pytest.approx(0.0, abs=1e-9)
 
 
 def test_projection_north_unit_step(tmp_path: Path) -> None:
-    """A 1° latitude step north of origin lands on +y_ENU = R * radians (no lon scale)."""
+    """A 1° latitude step north lands on the meridional scale, with no lon term."""
     origin_lat, origin_lon = 43.0, 7.0
     path = _write_geojson(tmp_path, [(7.0, 43.0), (7.0, 44.0)])
     centerline = Centerline.load_geojson(path, origin_lat=origin_lat, origin_lon=origin_lon)
-    expected_y = math.radians(1.0) * EARTH_RADIUS_M
+    frame = FlatEnu.at(origin_lat, origin_lon)
+    expected_y = math.radians(1.0) * frame.m_per_rad_north
     assert centerline.x[1] == pytest.approx(0.0, abs=1e-9)
     assert centerline.y[1] == pytest.approx(expected_y, rel=1e-9)
 
@@ -74,7 +77,7 @@ def test_snap_returns_nearest_vertex_pose(tmp_path: Path) -> None:
     """A query halfway between two vertices snaps to whichever is closer."""
     # Square loop, side ~10 m, at origin (so projection is simple).
     # Vertices at NE corner of unit-cell pattern around origin.
-    side_deg = 10.0 / EARTH_RADIUS_M * (180.0 / math.pi)  # ~10 m in latitude
+    side_deg = math.degrees(10.0 / FlatEnu.at(43.0, 7.0).m_per_rad_north)  # ~10 m
     coords = [
         (7.0, 43.0),
         (7.0 + side_deg, 43.0),
@@ -98,8 +101,9 @@ def test_tangent_at_closed_loop_seam(tmp_path: Path) -> None:
     # known edges (N→E in racing direction, say). Central difference at vertex
     # 0 should average those, giving SE-ish tangent — not zero.
     side_m = 10.0
-    side_deg_lat = side_m / EARTH_RADIUS_M * (180.0 / math.pi)
-    side_deg_lon = side_deg_lat / math.cos(math.radians(43.0))
+    frame = FlatEnu.at(43.0, 7.0)
+    side_deg_lat = math.degrees(side_m / frame.m_per_rad_north)
+    side_deg_lon = math.degrees(side_m / frame.m_per_rad_east)
     # Build a square going CCW: E vertex → N vertex → W vertex → S vertex → E.
     coords = [
         (7.0 + side_deg_lon, 43.0),  # E
@@ -149,9 +153,9 @@ def test_rejects_too_few_vertices(tmp_path: Path) -> None:
 # The shipped yaw_rad equals tangent + π/2 (wrapped to (-π, π]) — see the
 # `YAW_BIAS_RAD` derivation in scripts/derive_corner_poses.py.
 MONACO_CORNERS: list[tuple[str, float, float, float, float]] = [
-    ("massenet", 426.626, 461.295, 0.937199, 2.507995),
-    ("loews", 516.789, 384.040, 1.700252, -3.012136),
-    ("tabac", -118.936, -161.537, -0.991609, 0.579187),
+    ("massenet", 427.310, 460.415, 0.935522, 2.506319),
+    ("loews", 517.618, 383.307, 1.700703, -3.011686),
+    ("tabac", -119.127, -161.229, -0.989999, 0.580797),
 ]
 
 

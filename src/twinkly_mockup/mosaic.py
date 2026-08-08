@@ -22,6 +22,8 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from .enu import FlatEnu
+
 CLIP_VALUE: tuple[int, int, int] = (0, 0, 0)
 
 
@@ -64,6 +66,7 @@ class Mosaic:
         self._cos_theta = math.cos(theta)
         self._sin_theta = math.sin(theta)
         self._grid_scale = sidecar.grid_scale
+        self._enu = FlatEnu.at(sidecar.origin_lat, sidecar.origin_lon)
 
     @classmethod
     def load(cls, sidecar_path: Path) -> "Mosaic":
@@ -94,6 +97,26 @@ class Mosaic:
     @property
     def image(self) -> np.ndarray:
         return self._image
+
+    @property
+    def enu(self) -> FlatEnu:
+        """The flat-ENU frame this mosaic's metre coordinates are expressed in."""
+        return self._enu
+
+    def lonlat_to_px(self, lon: float, lat: float) -> tuple[float, float]:
+        """Project WGS84 lon/lat straight to mosaic pixel coords.
+
+        The full path — flat-ENU about the sidecar origin, then the grid
+        rotation and scale of `meters_to_px`. This is the composition the tracer
+        reimplements in JavaScript and the golden fixture pins (ADR-0004).
+        """
+        e, n = self._enu.to_enu(lat, lon)
+        return self.meters_to_px((float(e), float(n)))
+
+    def px_to_lonlat(self, px: tuple[float, float]) -> tuple[float, float]:
+        """Inverse of `lonlat_to_px`, returning `(lon, lat)` in degrees."""
+        lon, lat = self._enu.to_lonlat(*self.px_to_meters(px))
+        return float(lon), float(lat)
 
     def meters_to_px(self, xy_m: tuple[float, float]) -> tuple[float, float]:
         """Project an ENU position (meters from origin) to mosaic pixel coords.

@@ -6,17 +6,11 @@ local ENU frame (`+x` east, `+y` north, meters) around a chosen origin
 lat/lon — usually the mosaic origin so the centerline shares the mosaic
 coordinate frame.
 
-The projection is a tangent-plane (equirectangular) approximation:
-
-    e = (lon - lon0) * cos(lat0) * R
-    n = (lat - lat0) * R
-
-This is accurate to <0.5 m over a 1 km radius at Monaco's latitude — well
-below the ~0.65 m / LED resolution of the wall display. The mosaic was
-reprojected to UTM Zone 32N, which has its own scale distortion at this
-longitude (~+0.08%); the two errors are of the same order and both fall
-inside one LED. If a future circuit needs sub-decimeter ENU/UTM alignment,
-swap in `pyproj` here.
+The projection is the shared flat-ENU tangent plane (`enu.FlatEnu`), scaled by
+the ellipsoid's radii of curvature at the origin latitude. The rotation and
+scale from this frame into the mosaic's UTM grid axes live in the Sidecar
+(ADR-0004), so a centerline loaded around the mosaic origin overlays the asphalt
+to well under a pixel.
 
 The primary consumer is the snapshot-config authoring step: given a
 human-picked corner lat/lon, `snap_to_centerline` returns the nearest
@@ -34,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-EARTH_RADIUS_M: float = 6_378_137.0  # WGS84 semi-major axis
+from .enu import FlatEnu
 
 
 @dataclass(frozen=True)
@@ -88,9 +82,7 @@ class Centerline:
         lons = np.asarray([c[0] for c in coords], dtype=np.float64)
         lats = np.asarray([c[1] for c in coords], dtype=np.float64)
 
-        cos_lat0 = math.cos(math.radians(origin_lat))
-        e = np.radians(lons - origin_lon) * cos_lat0 * EARTH_RADIUS_M
-        n = np.radians(lats - origin_lat) * EARTH_RADIUS_M
+        e, n = FlatEnu.at(origin_lat, origin_lon).to_enu(lats, lons)
 
         # A polyline is "closed" if its first and last vertex coincide
         # (F1 GeoJSONs canonically duplicate vertex 0 at the seam). Drop the
@@ -155,10 +147,8 @@ class Centerline:
         origin_lon: float,
     ) -> Pose:
         """Snap a query lat/lon (using the same origin as load) to the nearest vertex."""
-        cos_lat0 = math.cos(math.radians(origin_lat))
-        x_m = math.radians(lon - origin_lon) * cos_lat0 * EARTH_RADIUS_M
-        y_m = math.radians(lat - origin_lat) * EARTH_RADIUS_M
-        return self.snap(x_m, y_m)
+        x_m, y_m = FlatEnu.at(origin_lat, origin_lon).to_enu(lat, lon)
+        return self.snap(float(x_m), float(y_m))
 
 
 def _extract_linestring_coords(raw: dict, path: Path) -> list[tuple[float, float]]:
