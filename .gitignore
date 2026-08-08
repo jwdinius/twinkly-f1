@@ -10,7 +10,10 @@ __pycache__/
 # Rendered output
 out/
 
-# Large derived mosaic raster — regenerable via scripts/build_monaco_mosaic.sh.
-# The sidecar (configs/monaco_mosaic.yaml) IS tracked; the PNG it points at is
-# build output (~42 MB) and lives outside the repo.
+# Large derived mosaic rasters — regenerable via scripts/build_*_mosaic.sh.
+# The sidecars (configs/*_mosaic.yaml) ARE tracked; the PNGs they point at are
+# build output (~40-55 MB) and live outside the repo. Same for the GDAL stats
+# sidecar emitted next to them.
 configs/monaco_mosaic.png
+configs/silverstone_mosaic.png
+configs/*_mosaic.png.aux.xml

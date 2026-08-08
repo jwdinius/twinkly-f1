@@ -16,19 +16,15 @@ Used to derive snapshot poses (nearest-vertex position + tangent yaw). It is
 A pair of lat/lon `LineString`s — one **left** edge, one **right** edge —
 each tracing a *physical* track boundary (white line / Armco). This is the
 input `fastest-lap`'s circuit preprocessor requires (it has no centerline-only
-mode). Hand-digitized in Google Earth Pro over a registered imagery backdrop.
+mode). Authored in the in-repo tracer (`scripts/trace_track_limits.html`) over
+the Mosaic — see [ADR-0003](docs/adr/0003-centerline-seeded-track-limits.md).
 Distinct from the Centerline.
 
 ### Mosaic
 A geo-registered raster satellite image of the circuit. Two roles: (1) the
-**backdrop** traced over to author the Track-limit KML, and (2) the image
+image the tracer displays when authoring the Track-limit KML, and (2) the image
 source the LED renderer crops/rotates/downsamples per frame. Produced raster,
 never vector — it carries no track geometry.
-
-### Backdrop
-The EPSG:4326 KMZ (SuperOverlay) that racetrack-mosaic emits for dropping into
-Google Earth Pro. Its sole role is to be traced over when authoring the
-Track-limit KML. Contrast the display **Mosaic**, which is UTM/metric.
 
 ### Sidecar
 The registration record the LED renderer needs to project ENU meters ↔ mosaic
