@@ -25,6 +25,10 @@ packages = ["src/twinkly_mockup"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    # Authority for grid convergence + point scale in tests/test_frame_registration.py.
+    # A flipped θ doubles the registration error instead of removing it and looks
+    # plausible at every zoom, so the sign is pinned here, not by argument (ADR-0004).
+    "pyproj>=3.6",
 ]
 
 [tool.pytest.ini_options]

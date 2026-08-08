@@ -28,9 +28,13 @@ never vector — it carries no track geometry.
 
 ### Sidecar
 The registration record the LED renderer needs to project ENU meters ↔ mosaic
-pixels: `origin_lat`, `origin_lon`, `origin_px`, `m_per_px`, `north_angle_deg`.
-Emitted directly by racetrack-mosaic from the UTM raster's geotransform (center
-pixel as origin anchor) — no longer hand-authored.
+pixels: `origin_lat`, `origin_lon`, `origin_px`, `m_per_px`, `north_angle_deg`,
+`utm_epsg`, `grid_scale`. Emitted directly by racetrack-mosaic from the UTM
+raster's geotransform and SRS (center pixel as origin anchor) — no longer
+hand-authored. Because the raster is UTM, its pixel axes are *grid* east/north:
+`north_angle_deg` carries the grid convergence and `grid_scale` the point scale
+factor that separate them from true east/north — see
+[ADR-0004](docs/adr/0004-utm-grid-frame-in-sidecar.md).
 
 ### Optimal trajectory
 The minimum-lap-time line + speed profile that `fastest-lap` computes for a
