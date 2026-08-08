@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track-limit tracer</title>
+<style>
+  :root { --bg:#12141a; --panel:#1b1e27; --ink:#e6e8ef; --muted:#8b92a5;
+          --left:#ff4d4d; --right:#4d9bff; --cl:#ffd60a; --accent:#3ddc97; }
+  * { box-sizing: border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+              font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+  #app { display:flex; height:100%; }
+  #stage { position:relative; flex:1; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; cursor:crosshair; }
+  #panel { width:280px; flex:0 0 280px; background:var(--panel); padding:14px;
+           overflow-y:auto; border-left:1px solid #000; }
+  h1 { font-size:14px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:11px; margin:0 0 14px; }
+  .grp { margin:0 0 14px; padding:0 0 14px; border-bottom:1px solid #2a2e3a; }
+  .grp:last-child { border:0; }
+  label.row { display:flex; align-items:center; gap:8px; margin:6px 0; cursor:pointer; }
+  .seg { display:flex; gap:6px; margin:6px 0; }
+  .seg button { flex:1; }
+  button { background:#2a2e3a; color:var(--ink); border:1px solid #3a3f4d;
+           border-radius:6px; padding:7px 9px; font:inherit; cursor:pointer; }
+  button:hover { background:#333846; }
+  button.on { outline:2px solid var(--accent); }
+  button.left.on { outline-color:var(--left); }
+  button.right.on { outline-color:var(--right); }
+  .k { display:inline-block; width:11px; height:11px; border-radius:3px; vertical-align:-1px; }
+  .stat { color:var(--muted); font-size:11px; }
+  .stat b { color:var(--ink); font-weight:600; }
+  kbd { background:#000; border:1px solid #3a3f4d; border-radius:4px; padding:0 4px; font-size:11px; }
+  #drop { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+          flex-direction:column; gap:10px; text-align:center; color:var(--muted);
+          background:rgba(10,12,16,.85); z-index:5; }
+  #drop.hide { display:none; }
+  .fauxbtn { background:#2a2e3a; border:1px solid #3a3f4d; border-radius:6px; padding:8px 14px; color:var(--ink); cursor:pointer; }
+  a.dl { display:none; }
+  #ctx { position:absolute; z-index:10; display:none; min-width:130px;
+         background:#232733; border:1px solid #3a3f4d; border-radius:6px; padding:4px;
+         box-shadow:0 6px 18px rgba(0,0,0,.55); }
+  #ctx .hd { color:var(--muted); font-size:11px; padding:3px 10px 5px; }
+  #ctx button { display:block; width:100%; text-align:left; border:0; background:transparent;
+                padding:6px 10px; border-radius:4px; }
+  #ctx button:hover { background:#3a2330; color:#ff8a8a; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="drop">
+      <div>Drop the mosaic PNG here, or</div>
+      <label class="fauxbtn">choose file<input id="file" type="file" accept="image/*" hidden></label>
+      <div id="dropHint" style="font-size:11px"></div>
+    </div>
+    <div id="ctx"><div class="hd" id="ctxHd">point</div><button id="ctxRemove">Remove point</button></div>
+  </div>
+  <div id="panel">
+    <h1 id="title">Track-limit tracer</h1>
+    <p class="sub" id="subtitle"></p>
+
+    <div class="grp">
+      <div class="stat">Active edge</div>
+      <div class="seg">
+        <button id="pickL" class="left on"><span class="k" style="background:var(--left)"></span> Left</button>
+        <button id="pickR" class="right"><span class="k" style="background:var(--right)"></span> Right</button>
+      </div>
+      <div class="stat"><b>click</b> to add a point (joined to the previous one) · <b>drag</b> a point to move · <b>shift-click</b> to insert between points · <b>right-click</b> a point → <b>Remove point</b> · drag empty space to pan · wheel to zoom.</div>
+    </div>
+
+    <div class="grp">
+      <label class="row"><input type="checkbox" id="tglCL" checked> <span class="k" style="background:var(--cl)"></span> Centerline guide</label>
+      <label class="row"><input type="checkbox" id="tglClose" checked> Closed loops</label>
+      <label class="row"><input type="checkbox" id="tglL" checked> <span class="k" style="background:var(--left)"></span> Show left</label>
+      <label class="row"><input type="checkbox" id="tglR" checked> <span class="k" style="background:var(--right)"></span> Show right</label>
+    </div>
+
+    <div class="grp">
+      <div class="seg"><button id="undo">Undo point</button><button id="fit">Fit view</button></div>
+      <div class="seg"><button id="clrL">Clear left</button><button id="clrR">Clear right</button></div>
+      <div class="seg"><button id="resetAuto" style="display:none">Reset to auto extraction</button></div>
+    </div>
+
+    <div class="grp">
+      <div class="seg"><button id="expL">Export left KML</button><button id="expR">Export right KML</button></div>
+      <div class="seg">
+        <label class="fauxbtn" style="flex:1;text-align:center">Import left<input id="impL" type="file" accept=".kml" hidden></label>
+        <label class="fauxbtn" style="flex:1;text-align:center">Import right<input id="impR" type="file" accept=".kml" hidden></label>
+      </div>
+      <div class="stat" id="exphint"></div>
+    </div>
+
+    <div class="grp stat">
+      <div>left points: <b id="nL">0</b> · right points: <b id="nR">0</b></div>
+      <div>zoom: <b id="zoom">–</b> · cursor: <b id="ll">–</b></div>
+      <div style="margin-top:8px">autosaves per circuit · <kbd>L</kbd>/<kbd>R</kbd> edge · <kbd>U</kbd> undo · <kbd>F</kbd> fit</div>
+    </div>
+  </div>
+</div>
+<a id="dl" class="dl"></a>
+
+<script type="module">
+// The frame transform lives in scripts/tracer/frame.js because Python owns the
+// authoritative implementation and a golden fixture binds the two (ADR-0004);
+// see tests/js/frame.test.js. Being an ES module, this page must be *served* —
+// `python3 -m http.server` from the repo root will do until scripts/trace.py
+// lands. Opening it straight off the filesystem will not load the import.
+import {
+  createFrame,
+  lonLatToPx as frameLonLatToPx,
+  pxToLonLat as framePxToLonLat,
+} from './tracer/frame.js';
+
+// ---------- default circuit (Monaco), used when no ?circuit= is given ----------
+const MONACO_CL = [[7.427191,43.739404],[7.427171,43.739494],[7.427199,43.739575],[7.427271,43.739686],[7.427339,43.739764],[7.427551,43.739958],[7.428628,43.741015],[7.428703,43.741091],[7.428814,43.741114],[7.428949,43.741086],[7.429043,43.74103],[7.429111,43.740942],[7.429125,43.740843],[7.429128,43.740761],[7.429139,43.740694],[7.429195,43.740614],[7.42926,43.740553],[7.429381,43.74043],[7.429463,43.740321],[7.429495,43.740255],[7.429536,43.740216],[7.429601,43.740203],[7.429676,43.740219],[7.429732,43.740261],[7.429749,43.740321],[7.429712,43.740372],[7.429617,43.740422],[7.429336,43.74068],[7.429296,43.740742],[7.429295,43.740802],[7.429317,43.740848],[7.429347,43.740891],[7.429479,43.74094],[7.429683,43.740978],[7.429794,43.741008],[7.429908,43.741041],[7.430066,43.741081],[7.430238,43.74109],[7.430329,43.741057],[7.430363,43.740955],[7.430331,43.740359],[7.430204,43.739746],[7.430072,43.739356],[7.429925,43.739078],[7.429673,43.73876],[7.429383,43.738491],[7.428963,43.73816],[7.428362,43.737894],[7.428004,43.737767],[7.427314,43.737534],[7.42685,43.737418],[7.426165,43.737301],[7.425724,43.737251],[7.42549,43.737219],[7.42545,43.73717],[7.425447,43.737127],[7.425433,43.737077],[7.425403,43.737028],[7.425304,43.737003],[7.425164,43.736986],[7.425009,43.73705],[7.424924,43.737054],[7.42369,43.736937],[7.423077,43.736873],[7.422513,43.736809],[7.422357,43.736792],[7.422253,43.736779],[7.422178,43.736723],[7.42206,43.736555],[7.42196,43.736392],[7.42188,43.736229],[7.421845,43.736113],[7.421808,43.735911],[7.421805,43.735565],[7.42181,43.735479],[7.421845,43.73542],[7.421915,43.735363],[7.42207,43.735281],[7.422174,43.735212],[7.422219,43.735138],[7.422237,43.735031],[7.422413,43.734295],[7.422458,43.734166],[7.422472,43.734125],[7.422468,43.73407],[7.422423,43.734026],[7.422324,43.733976],[7.422225,43.733941],[7.422202,43.733891],[7.422221,43.733786],[7.422334,43.733547],[7.422437,43.733367],[7.422542,43.733225],[7.422722,43.733039],[7.422948,43.732874],[7.423114,43.732805],[7.4233,43.732742],[7.423393,43.732712],[7.42344,43.732674],[7.423494,43.732557],[7.423468,43.732495],[7.423384,43.732459],[7.423011,43.732388],[7.422803,43.732364],[7.422666,43.732362],[7.422544,43.732375],[7.422467,43.732417],[7.42242,43.732452],[7.422418,43.732534],[7.4224,43.7326],[7.422364,43.732681],[7.422154,43.732868],[7.422,43.733047],[7.42188,43.733181],[7.421753,43.733435],[7.421472,43.734142],[7.421395,43.73437],[7.421341,43.734614],[7.421271,43.73497],[7.421216,43.735433],[7.421216,43.735735],[7.421234,43.735966],[7.421269,43.736206],[7.421331,43.736373],[7.421401,43.736523],[7.421435,43.736615],[7.421452,43.736696],[7.421444,43.736819],[7.421441,43.736895],[7.421475,43.73694],[7.421562,43.73697],[7.421774,43.737007],[7.421963,43.737013],[7.422222,43.737036],[7.422583,43.737069],[7.422903,43.73711],[7.423717,43.737283],[7.424172,43.737373],[7.424589,43.737422],[7.424875,43.737439],[7.425098,43.737497],[7.425743,43.737718],[7.426026,43.737802],[7.426439,43.737869],[7.426784,43.737904],[7.427113,43.737944],[7.427298,43.737991],[7.427523,43.738093],[7.427718,43.73824],[7.427828,43.738364],[7.427877,43.738494],[7.427869,43.73863],[7.427837,43.738758],[7.427767,43.738899],[7.427674,43.739033],[7.427528,43.739115],[7.427388,43.73921],[7.42732,43.739253],[7.427257,43.739299],[7.427191,43.739404]];
+// Sidecar values are copied verbatim from configs/monaco_mosaic.yaml, which is
+// itself emitted from the raster's geotransform. This literal goes away with the
+// circuits.json manifest.
+const MONACO = { name:'monaco', image:'monaco_mosaic.png',
+  sidecar:{ origin_lat:43.736871113, origin_lon:7.423323737,
+            origin_px:[2612.5,2604.0], m_per_px:0.215660367,
+            north_angle_deg:-1.090176381, utm_epsg:32632,
+            grid_scale:0.999798282 },
+  centerline:MONACO_CL, left:[], right:[] };
+
+// ---------- geo frame (set on boot) ----------
+// Grid-aware: the raster is UTM, so its pixel axes are grid east/north and the
+// projection carries the convergence and point scale factor. The flat
+// cos(lat0)·R model this replaced put the guide up to 2.5 track widths off the
+// asphalt at the image extremes.
+let F = null;
+function setFrame(sidecar){ F = createFrame(sidecar); }
+function pxToLonLat(px,py){ return framePxToLonLat(F,px,py); }
+function lonLatToPx(lon,lat){ return frameLonLatToPx(F,lon,lat); }
+const toPx = ll => ll.map(([lo,la])=>lonLatToPx(lo,la));
+
+// ---------- state ----------
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d'), $=id=>document.getElementById(id);
+let CFG=null, img=null, imgW=0, imgH=0, s=1, ox=0, oy=0;
+let CL_PX=[], pts={L:[],R:[]}, active='L';
+const show={CL:true,L:true,R:true};
+let dpr=Math.max(1,devicePixelRatio||1);
+let hover=null;                         // {layer,i} vertex under cursor
+const GRAB=9;                           // screen px grab radius
+function LSKEY(){ return 'tracer_'+CFG.name+'_v2'; }
+function save(){ try{ localStorage.setItem(LSKEY(),JSON.stringify(pts)); }catch(e){} }
+
+// ---------- view ----------
+function toScreen(px,py){ return [px*s+ox, py*s+oy]; }
+function toImg(sx,sy){ return [(sx-ox)/s, (sy-oy)/s]; }
+function fit(){ if(!img)return; const w=cv.clientWidth,h=cv.clientHeight;
+  s=Math.min(w/imgW,h/imgH)*0.96; ox=(w-imgW*s)/2; oy=(h-imgH*s)/2; draw(); }
+function resize(){ dpr=Math.max(1,devicePixelRatio||1);
+  cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0); draw(); }
+
+// ---------- draw ----------
+function polyline(arr,close){ ctx.beginPath();
+  arr.forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  if(close&&arr.length>2)ctx.closePath(); ctx.stroke(); }
+function draw(){
+  const w=cv.clientWidth,h=cv.clientHeight;
+  ctx.clearRect(0,0,w,h); ctx.fillStyle='#0b0d12'; ctx.fillRect(0,0,w,h);
+  if(img){ ctx.imageSmoothingEnabled=s<2; ctx.drawImage(img,ox,oy,imgW*s,imgH*s); }
+  if(show.CL&&CL_PX.length){ ctx.strokeStyle='rgba(255,214,10,.9)'; ctx.lineWidth=1.5;
+    ctx.setLineDash([6,5]); polyline(CL_PX,true); ctx.setLineDash([]); }
+  drawEdge('R','right'); drawEdge('L','left');
+  hud();
+}
+function drawEdge(key,cssvar){
+  if(!show[key])return; const arr=pts[key]; if(!arr.length)return;
+  const color=getComputedStyle(document.documentElement).getPropertyValue('--'+cssvar).trim();
+  ctx.strokeStyle=color; ctx.lineWidth=key===active?2.2:1.6;
+  polyline(arr, $('tglClose').checked);
+  ctx.fillStyle=color; const rad=key===active?2.8:2.0;
+  arr.forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]);
+    const big=(hover&&hover.layer===key&&hover.i===i);
+    ctx.beginPath(); ctx.arc(x,y, big?rad+3:(i===0?rad+1.4:rad),0,7); ctx.fill();
+    if(big){ ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(x,y,rad+5,0,7); ctx.stroke(); ctx.strokeStyle=color; }
+  });
+}
+function hud(){
+  $('nL').textContent=pts.L.length; $('nR').textContent=pts.R.length;
+  $('zoom').textContent=img?(s/(Math.min(cv.clientWidth/imgW,cv.clientHeight/imgH))).toFixed(1)+'×':'–';
+}
+
+// ---------- hit testing ----------
+function nearestVertex(sx,sy,layer){
+  let best=null; pts[layer].forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]);
+    const d=Math.hypot(x-sx,y-sy); if(d<=GRAB&&(!best||d<best.d))best={i,d}; });
+  return best;
+}
+function nearestSegment(sx,sy,layer){         // returns {i,d} where insert goes after i
+  const a=pts[layer]; if(a.length<2)return null;
+  const N=$('tglClose').checked?a.length:a.length-1; let best=null;
+  for(let i=0;i<N;i++){ const p=toScreen(a[i][0],a[i][1]), q=toScreen(a[(i+1)%a.length][0],a[(i+1)%a.length][1]);
+    const vx=q[0]-p[0],vy=q[1]-p[1], L2=vx*vx+vy*vy||1;
+    let t=((sx-p[0])*vx+(sy-p[1])*vy)/L2; t=Math.max(0,Math.min(1,t));
+    const d=Math.hypot(sx-(p[0]+t*vx), sy-(p[1]+t*vy));
+    if(!best||d<best.d)best={i,d}; }
+  return best;
+}
+
+// ---------- image loading ----------
+function setImage(im){ img=im; imgW=im.naturalWidth; imgH=im.naturalHeight;
+  $('drop').classList.add('hide'); fit(); }
+function autoLoad(){ const im=new Image(); im.onload=()=>setImage(im); im.onerror=()=>{};
+  im.src='../configs/'+CFG.image; }
+function loadFile(f){ const im=new Image(); im.onload=()=>{setImage(im);URL.revokeObjectURL(im.src);};
+  im.src=URL.createObjectURL(f); }
+
+// ---------- interaction ----------
+let down=null, moved=false, drag=null, ctxTarget=null;
+function hideMenu(){ $('ctx').style.display='none'; ctxTarget=null; }
+function nearestVertexAny(sx,sy,rad){       // search both visible layers
+  let best=null;
+  ['L','R'].forEach(layer=>{ if(!show[layer])return;
+    pts[layer].forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]);
+      const d=Math.hypot(x-sx,y-sy); if(d<=rad&&(!best||d<best.d))best={layer,i,d}; }); });
+  return best;
+}
+cv.addEventListener('mousedown',e=>{
+  if(e.button!==0)return;                   // only left button drags/pans
+  hideMenu();
+  const hit=nearestVertex(e.offsetX,e.offsetY,active);
+  if(hit){ drag={i:hit.i}; moved=false; return; }
+  down={x:e.offsetX,y:e.offsetY,ox,oy}; moved=false;
+});
+cv.addEventListener('mousemove',e=>{
+  if(drag){ pts[active][drag.i]=toImg(e.offsetX,e.offsetY); moved=true; draw(); }
+  else if(down){ const dx=e.offsetX-down.x,dy=e.offsetY-down.y;
+    if(Math.abs(dx)+Math.abs(dy)>3)moved=true;
+    if(moved){ ox=down.ox+dx; oy=down.oy+dy; draw(); } }
+  else { const h=nearestVertex(e.offsetX,e.offsetY,active);
+    const changed=(!!h!==!!hover)||(h&&hover&&h.i!==hover.i);
+    hover=h?{layer:active,i:h.i}:null; if(changed)draw(); }
+  if(img){ const [px,py]=toImg(e.offsetX,e.offsetY); const [lo,la]=pxToLonLat(px,py);
+    $('ll').textContent=la.toFixed(6)+', '+lo.toFixed(6); }
+});
+window.addEventListener('mouseup',e=>{
+  if(drag){ if(moved)save(); drag=null; return; }
+  if(down&&!moved&&img){                        // a click
+    const [px,py]=toImg(down.x,down.y);
+    if(px>=0&&py>=0&&px<=imgW&&py<=imgH){
+      if(e.shiftKey){                           // shift-click: insert between existing points
+        const seg=nearestSegment(down.x,down.y,active);
+        if(seg) pts[active].splice(seg.i+1,0,[px,py]); else pts[active].push([px,py]);
+      } else {
+        pts[active].push([px,py]);              // plain click: append to end (join to previous only)
+      }
+      save(); draw();
+    }
+  }
+  down=null;
+});
+cv.addEventListener('contextmenu',e=>{ e.preventDefault();
+  const hit=nearestVertexAny(e.offsetX,e.offsetY,14);
+  if(!hit){ hideMenu(); return; }
+  if(hit.layer!==active)setActive(hit.layer);
+  ctxTarget={layer:hit.layer,i:hit.i}; hover=ctxTarget;
+  const m=$('ctx');
+  $('ctxHd').textContent=(hit.layer==='L'?'left':'right')+' point #'+hit.i;
+  m.style.left=Math.min(e.offsetX,cv.clientWidth-140)+'px';
+  m.style.top=Math.min(e.offsetY,cv.clientHeight-70)+'px';
+  m.style.display='block'; draw();
+});
+$('ctxRemove').onclick=()=>{ if(ctxTarget){ pts[ctxTarget.layer].splice(ctxTarget.i,1); save(); }
+  hover=null; hideMenu(); draw(); };
+cv.addEventListener('wheel',e=>{ e.preventDefault(); hideMenu(); if(!img)return;
+  const [ipx,ipy]=toImg(e.offsetX,e.offsetY);
+  s*=Math.exp(-e.deltaY*0.0015); s=Math.max(0.02,Math.min(40,s));
+  ox=e.offsetX-ipx*s; oy=e.offsetY-ipy*s; draw();
+},{passive:false});
+
+// ---------- KML ----------
+function buildKML(name,arr,close){
+  const ll=arr.map(([px,py])=>pxToLonLat(px,py));
+  if(close&&ll.length>1)ll.push(ll[0]);
+  const coords=ll.map(([lo,la])=>`${lo},${la},0`).join(' ');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name}</name>
+    <Placemark><name>${name}</name>
+      <LineString><tessellate>1</tessellate><altitudeMode>clampToGround</altitudeMode>
+        <coordinates>${coords}</coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>
+`;
+}
+function download(fname,text){ const a=$('dl');
+  a.href=URL.createObjectURL(new Blob([text],{type:'application/vnd.google-earth.kml+xml'}));
+  a.download=fname; a.click(); URL.revokeObjectURL(a.href); }
+function importKML(text,key){
+  const m=text.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
+  if(!m){ alert('no <coordinates> in KML'); return; }
+  const ll=m[1].trim().split(/\s+/).map(t=>t.split(',').map(Number));
+  let arr=ll.map(([lo,la])=>lonLatToPx(lo,la));
+  if(arr.length>1){ const a=arr[0],b=arr[arr.length-1];
+    if(Math.hypot(a[0]-b[0],a[1]-b[1])<1)arr.pop(); }
+  pts[key]=arr; save(); draw();
+}
+
+// ---------- UI ----------
+function setActive(k){ active=k; hover=null;
+  $('pickL').classList.toggle('on',k==='L'); $('pickR').classList.toggle('on',k==='R'); draw(); }
+$('pickL').onclick=()=>setActive('L'); $('pickR').onclick=()=>setActive('R');
+$('tglCL').onchange=e=>{show.CL=e.target.checked;draw();};
+$('tglL').onchange=e=>{show.L=e.target.checked;draw();};
+$('tglR').onchange=e=>{show.R=e.target.checked;draw();};
+$('tglClose').onchange=draw;
+$('undo').onclick=()=>{ if(pts[active].length){pts[active].pop();save();draw();} };
+$('fit').onclick=fit;
+$('clrL').onclick=()=>{ if(confirm('Clear left edge?')){pts.L=[];save();draw();} };
+$('clrR').onclick=()=>{ if(confirm('Clear right edge?')){pts.R=[];save();draw();} };
+$('resetAuto').onclick=()=>{ if(confirm('Discard edits and reload the auto extraction?')){
+  pts={L:toPx(CFG.left),R:toPx(CFG.right)}; save(); draw(); } };
+$('expL').onclick=()=>download(CFG.name+'_left.kml',buildKML(CFG.name+'_left',pts.L,$('tglClose').checked));
+$('expR').onclick=()=>download(CFG.name+'_right.kml',buildKML(CFG.name+'_right',pts.R,$('tglClose').checked));
+$('impL').onchange=e=>{const f=e.target.files[0]; if(f)f.text().then(t=>importKML(t,'L'));};
+$('impR').onchange=e=>{const f=e.target.files[0]; if(f)f.text().then(t=>importKML(t,'R'));};
+$('file').onchange=e=>{ if(e.target.files[0])loadFile(e.target.files[0]); };
+const stage=$('stage');
+stage.addEventListener('dragover',e=>e.preventDefault());
+stage.addEventListener('drop',e=>{e.preventDefault(); const f=e.dataTransfer.files[0]; if(f)loadFile(f);});
+addEventListener('keydown',e=>{ if(e.key==='Escape'){hideMenu();return;} if(e.target.tagName==='INPUT')return; const k=e.key.toLowerCase();
+  if(k==='l')setActive('L'); else if(k==='r')setActive('R'); else if(k==='f')fit();
+  else if(k==='u'||(k==='z'&&(e.metaKey||e.ctrlKey))){ if(pts[active].length){pts[active].pop();save();draw();} } });
+addEventListener('resize',resize);
+
+// ---------- boot ----------
+function boot(cfg){
+  CFG=cfg; setFrame(cfg.sidecar);
+  CL_PX=toPx(cfg.centerline||[]);
+  $('title').textContent='Track-limit tracer — '+cfg.name;
+  $('subtitle').innerHTML='frame from <code>'+cfg.name+'_mosaic.yaml</code>';
+  $('dropHint').innerHTML='auto-loads <code>../configs/'+cfg.image+'</code>';
+  $('exphint').innerHTML='exports <b>'+cfg.name+'_left.kml</b> / <b>'+cfg.name+'_right.kml</b> → move into <code>configs/</code>';
+  const hasAuto=(cfg.left&&cfg.left.length)||(cfg.right&&cfg.right.length);
+  $('resetAuto').style.display=hasAuto?'':'none';
+  let saved=null; try{ saved=JSON.parse(localStorage.getItem(LSKEY())); }catch(e){}
+  if(saved&&saved.L&&(saved.L.length||saved.R.length)) pts=saved;
+  else pts={L:toPx(cfg.left||[]),R:toPx(cfg.right||[])};
+  resize(); autoLoad();
+}
+const circuit=new URLSearchParams(location.search).get('circuit');
+if(circuit){
+  const sc=document.createElement('script');
+  sc.src='../configs/'+circuit+'_tracer_data.js';
+  sc.onload=()=>boot(window.TRACER);
+  sc.onerror=()=>{ alert('could not load ../configs/'+circuit+'_tracer_data.js — falling back to Monaco'); boot(MONACO); };
+  document.head.appendChild(sc);
+} else boot(MONACO);
+</script>
+</body>
+</html>

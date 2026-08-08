@@ -8,6 +8,19 @@ display top-down satellite imagery of a Monaco lap, scrolling and rotating
 beneath the (visually fixed) car to create the illusion it is driving the
 circuit.
 
+## Tests
+
+```
+scripts/check.sh
+```
+
+Two suites behind one command: `pytest` for the package, and `node --test` for
+the tracer's copy of the mosaic frame transform. The transform has two
+implementations on purpose ([ADR-0004](docs/adr/0004-utm-grid-frame-in-sidecar.md))
+— a round-trip to Python per drag frame is not viable — so Python generates a
+golden fixture (`scripts/gen_frame_fixture.py`) that the JavaScript must
+reproduce. Running only the Python half would let the two drift.
+
 ## Documentation
 
 - **[CONTEXT.md](CONTEXT.md)** — glossary of the project's domain language
