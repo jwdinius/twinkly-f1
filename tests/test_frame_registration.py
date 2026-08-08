@@ -3,7 +3,8 @@
 Mosaics are reprojected to UTM so the PNG has isotropic metres per pixel, which
 makes the pixel axes UTM **grid** east/north — but ENU offsets are **true**
 east/north. `MosaicSidecar.north_angle_deg` and `grid_scale` carry the rotation
-and scale between the two.
+and scale between the two, and `scripts/emit_mosaic_sidecar.py` computes both
+from the warped raster at build time.
 
 `pyproj` is the authority here, deliberately. A flipped θ *doubles* the
 registration error instead of removing it and looks entirely plausible at every
@@ -12,6 +13,11 @@ extraction run, a debug overlay, and an export. So the sign is pinned by
 evaluating the projection at points near the image corners, where a flip is
 unmissable, and `test_flipped_convergence_sign_breaks_agreement` proves the
 fixture has teeth.
+
+Shipped sidecars are **discovered**, not listed. A new circuit whose sidecar was
+hand-written, copied from another zone, or emitted against the wrong raster
+fails here rather than being silently skipped — which is the whole point of the
+guard.
 """
 
 from __future__ import annotations
@@ -30,44 +36,42 @@ pyproj = pytest.importorskip("pyproj")
 
 CONFIGS = Path(__file__).resolve().parent.parent / "configs"
 
-# Shipped sidecars bound to the UTM zone their mosaic was warped into. The
-# EPSG lives here rather than in the YAMLs because this slice deliberately does
-# not touch any shipped sidecar's values — re-registering them is the next one.
-CIRCUITS = [
-    ("monaco_mosaic.yaml", 32632),  # UTM 32N
-    ("silverstone_mosaic.yaml", 32630),  # UTM 30N
-]
+# `example_mosaic.yaml` is a hand-authored 200×200 synthetic fixture — four flat
+# colour quadrants at (0°, 0°), with no source raster and therefore no UTM zone
+# to be registered against. It is the only sidecar exempt from the guard below;
+# every other `*_mosaic.yaml` in `configs/` is a real circuit and must carry a
+# projection it can be checked against.
+SYNTHETIC_SIDECARS = {"example_mosaic.yaml"}
+
+
+def shipped_sidecar_names() -> list[str]:
+    return sorted(
+        p.name for p in CONFIGS.glob("*_mosaic.yaml") if p.name not in SYNTHETIC_SIDECARS
+    )
+
+
+SHIPPED = shipped_sidecar_names()
 
 
 def _load_shipped(name: str) -> MosaicSidecar:
     return MosaicSidecar.model_validate(yaml.safe_load((CONFIGS / name).read_text()))
 
 
-def _registered(sidecar: MosaicSidecar, epsg: int, *, flip: bool = False) -> Mosaic:
-    """The same sidecar, re-registered from `pyproj` instead of hand-typed.
+def _mosaic(sidecar: MosaicSidecar) -> Mosaic:
+    """A `Mosaic` over a stub image — projection never touches pixels."""
+    return Mosaic(np.zeros((2, 2, 3), dtype=np.uint8), sidecar)
 
-    θ is the meridian convergence at the origin and `grid_scale` the point scale
-    factor of the projection there. `flip` negates θ to exercise the sign check;
-    the image is a stub because projection never touches pixels.
-    """
-    factors = pyproj.Proj(pyproj.CRS.from_epsg(epsg)).get_factors(
-        sidecar.origin_lon, sidecar.origin_lat
-    )
-    theta = -factors.meridian_convergence if flip else factors.meridian_convergence
-    registered = sidecar.model_copy(
-        update={
-            "utm_epsg": epsg,
-            "north_angle_deg": theta,
-            "grid_scale": factors.meridional_scale,
-        }
-    )
-    return Mosaic(np.zeros((2, 2, 3), dtype=np.uint8), registered)
+
+def _factors_at_origin(sidecar: MosaicSidecar):
+    """`pyproj`'s projection factors at the sidecar's own origin and EPSG."""
+    crs = pyproj.CRS.from_epsg(sidecar.utm_epsg)
+    return pyproj.Proj(crs).get_factors(sidecar.origin_lon, sidecar.origin_lat)
 
 
 def _image_corner_enu(sidecar: MosaicSidecar) -> list[tuple[float, float]]:
     """The four image corners as ENU metres from the origin.
 
-    Both shipped sidecars anchor the origin at the raster's centre pixel, so the
+    Every shipped sidecar anchors the origin at the raster's centre pixel, so the
     half-extent in metres is just `origin_px * m_per_px`.
     """
     half_e = sidecar.origin_px[0] * sidecar.m_per_px
@@ -75,9 +79,7 @@ def _image_corner_enu(sidecar: MosaicSidecar) -> list[tuple[float, float]]:
     return [(se * half_e, sn * half_n) for se in (-1.0, 1.0) for sn in (-1.0, 1.0)]
 
 
-def _grid_offsets(
-    sidecar: MosaicSidecar, epsg: int, enu: list[tuple[float, float]]
-) -> np.ndarray:
+def _grid_offsets(sidecar: MosaicSidecar, enu: list[tuple[float, float]]) -> np.ndarray:
     """True-ENU offsets → UTM grid offsets from the origin, via `pyproj`.
 
     Each ENU offset is placed at its true geodesic distance and azimuth from the
@@ -93,13 +95,17 @@ def _grid_offsets(
         np.degrees(np.arctan2(e, n)),  # azimuth: clockwise from north
         np.hypot(e, n),
     )
-    to_utm = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+    to_utm = pyproj.Transformer.from_crs(
+        "EPSG:4326", f"EPSG:{sidecar.utm_epsg}", always_xy=True
+    )
     east0, north0 = to_utm.transform(sidecar.origin_lon, sidecar.origin_lat)
     east, north = to_utm.transform(lons, lats)
     return np.column_stack([east - east0, north - north0])
 
 
-def _px_error_m(mosaic: Mosaic, enu: list[tuple[float, float]], grid: np.ndarray) -> np.ndarray:
+def _px_error_m(
+    mosaic: Mosaic, enu: list[tuple[float, float]], grid: np.ndarray
+) -> np.ndarray:
     """Distance, in metres, between `meters_to_px` and the `pyproj` truth."""
     sidecar = mosaic.sidecar
     ox, oy = sidecar.origin_px
@@ -128,14 +134,6 @@ def test_sidecar_defaults_leave_pre_adr_sidecars_loading_unchanged() -> None:
     assert sidecar.grid_scale == 1.0
 
 
-@pytest.mark.parametrize(("name", "epsg"), CIRCUITS)
-def test_shipped_sidecars_still_load(name: str, epsg: int) -> None:
-    """This slice changes the schema, not any shipped value."""
-    sidecar = _load_shipped(name)
-    assert sidecar.grid_scale == 1.0
-    assert sidecar.utm_epsg is None
-
-
 def test_grid_scale_must_be_positive() -> None:
     with pytest.raises(Exception):
         MosaicSidecar.model_validate(
@@ -148,6 +146,48 @@ def test_grid_scale_must_be_positive() -> None:
                 "grid_scale": 0.0,
             }
         )
+
+
+# --- every shipped circuit is registered, and registered correctly ----------
+
+
+def test_discovery_finds_the_shipped_circuits() -> None:
+    """The guard below is only worth anything if it actually sees the circuits."""
+    assert set(SHIPPED) >= {"monaco_mosaic.yaml", "silverstone_mosaic.yaml"}
+
+
+@pytest.mark.parametrize("name", SHIPPED)
+def test_shipped_sidecar_declares_its_projection(name: str) -> None:
+    """No circuit ships without the zone its pixel axes are defined in."""
+    sidecar = _load_shipped(name)
+    assert sidecar.utm_epsg is not None, (
+        f"{name} has no utm_epsg — rebuild it with scripts/emit_mosaic_sidecar.py "
+        f"so its convergence and scale can be checked"
+    )
+    assert pyproj.CRS.from_epsg(sidecar.utm_epsg).is_projected
+
+
+@pytest.mark.parametrize("name", SHIPPED)
+def test_stored_convergence_and_scale_match_pyproj(name: str) -> None:
+    """Recompute both stored values from the sidecar's own origin and EPSG.
+
+    This is the guard that stops a circuit shipping misregistered: the sidecar
+    is checked against the projection it claims to be in, so a hand-typed angle,
+    a stale value from before a re-bbox, or a zone copied from a neighbouring
+    circuit all fail here.
+    """
+    sidecar = _load_shipped(name)
+    factors = _factors_at_origin(sidecar)
+    assert sidecar.north_angle_deg == pytest.approx(
+        factors.meridian_convergence, abs=1e-6
+    ), f"{name}: stored θ {sidecar.north_angle_deg} ≠ pyproj {factors.meridian_convergence}"
+    assert sidecar.grid_scale == pytest.approx(factors.meridional_scale, abs=1e-9)
+
+
+@pytest.mark.parametrize("name", SHIPPED)
+def test_stored_convergence_is_not_zero(name: str) -> None:
+    """`0.0` is the value that shipped for a year and cost 30 m at Silverstone."""
+    assert abs(_load_shipped(name).north_angle_deg) > 1e-3
 
 
 # --- invertibility ----------------------------------------------------------
@@ -180,19 +220,17 @@ def test_meters_px_round_trip_under_convergence_and_scale(
 # --- the sign, pinned by pyproj ---------------------------------------------
 
 
-@pytest.mark.parametrize(("name", "epsg"), CIRCUITS)
-def test_projection_matches_pyproj_at_image_corners(name: str, epsg: int) -> None:
+@pytest.mark.parametrize("name", SHIPPED)
+def test_projection_matches_pyproj_at_image_corners(name: str) -> None:
     """At the image corners the convergence has its longest lever arm."""
     sidecar = _load_shipped(name)
     corners = _image_corner_enu(sidecar)
-    err = _px_error_m(
-        _registered(sidecar, epsg), corners, _grid_offsets(sidecar, epsg, corners)
-    )
+    err = _px_error_m(_mosaic(sidecar), corners, _grid_offsets(sidecar, corners))
     assert err.max() < 0.05, f"{name}: worst corner error {err.max():.4f} m"
 
 
-@pytest.mark.parametrize(("name", "epsg"), CIRCUITS)
-def test_flipped_convergence_sign_breaks_agreement(name: str, epsg: int) -> None:
+@pytest.mark.parametrize("name", SHIPPED)
+def test_flipped_convergence_sign_breaks_agreement(name: str) -> None:
     """The fixture has teeth: a flipped θ doubles the error, it does not cancel.
 
     Passing under both signs would mean the test pins nothing — which is exactly
@@ -200,19 +238,26 @@ def test_flipped_convergence_sign_breaks_agreement(name: str, epsg: int) -> None
     """
     sidecar = _load_shipped(name)
     corners = _image_corner_enu(sidecar)
-    grid = _grid_offsets(sidecar, epsg, corners)
-    flipped = _px_error_m(_registered(sidecar, epsg, flip=True), corners, grid)
+    grid = _grid_offsets(sidecar, corners)
+    flipped = _px_error_m(
+        _mosaic(sidecar.model_copy(update={"north_angle_deg": -sidecar.north_angle_deg})),
+        corners,
+        grid,
+    )
     assert flipped.max() > 10.0, f"{name}: flipped θ only cost {flipped.max():.4f} m"
-    # Roughly twice the uncorrected error — the signature of a sign flip rather
-    # than of some unrelated drift.
+    # Roughly twice the *uncorrected* error — the signature of a sign flip rather
+    # than of some unrelated drift. Uncorrected is the pre-ADR-0004 sidecar: no
+    # rotation, unit scale.
     uncorrected = _px_error_m(
-        Mosaic(np.zeros((2, 2, 3), dtype=np.uint8), sidecar), corners, grid
+        _mosaic(sidecar.model_copy(update={"north_angle_deg": 0.0, "grid_scale": 1.0})),
+        corners,
+        grid,
     )
     assert flipped.max() == pytest.approx(2.0 * uncorrected.max(), rel=0.05)
 
 
-@pytest.mark.parametrize(("name", "epsg"), CIRCUITS)
-def test_affine_residual_over_full_image_is_subpixel(name: str, epsg: int) -> None:
+@pytest.mark.parametrize("name", SHIPPED)
+def test_affine_residual_over_full_image_is_subpixel(name: str) -> None:
     """Rotation-plus-scale is not an exact inverse transverse Mercator.
 
     Over a 21×21 grid spanning the whole raster its residual must stay under one
@@ -226,18 +271,14 @@ def test_affine_residual_over_full_image_is_subpixel(name: str, epsg: int) -> No
         np.linspace(-half_e, half_e, 21), np.linspace(-half_n, half_n, 21)
     )
     samples = list(zip(es.ravel().tolist(), ns.ravel().tolist()))
-    err = _px_error_m(
-        _registered(sidecar, epsg), samples, _grid_offsets(sidecar, epsg, samples)
-    )
+    err = _px_error_m(_mosaic(sidecar), samples, _grid_offsets(sidecar, samples))
     assert err.max() < sidecar.m_per_px, (
         f"{name}: residual {err.max():.4f} m exceeds one pixel ({sidecar.m_per_px:.4f} m)"
     )
 
 
-@pytest.mark.parametrize(("name", "epsg"), CIRCUITS)
-def test_spherical_flat_enu_is_the_remaining_registration_error(
-    name: str, epsg: int
-) -> None:
+@pytest.mark.parametrize("name", SHIPPED)
+def test_spherical_flat_enu_is_the_remaining_registration_error(name: str) -> None:
     """Characterisation, not endorsement — pins an error this slice does not fix.
 
     `centerline.py` / `import_lap.py` build ENU as `(lon−lon0)·cos(lat0)·a` and
@@ -245,12 +286,14 @@ def test_spherical_flat_enu_is_the_remaining_registration_error(
     to true distances. That anisotropy is not a rotation-plus-scale, so it
     survives ADR-0004 intact: ~1.4 m at the image corners, versus the ~30 m the
     convergence correction removes. Well inside a 12 m track width, but no
-    longer negligible next to the sub-pixel claim above.
+    longer negligible next to the sub-pixel claim above. Tracked in #23.
     """
     sidecar = _load_shipped(name)
     corners = _image_corner_enu(sidecar)
     earth_radius_m = 6_378_137.0
-    to_utm = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+    to_utm = pyproj.Transformer.from_crs(
+        "EPSG:4326", f"EPSG:{sidecar.utm_epsg}", always_xy=True
+    )
     east0, north0 = to_utm.transform(sidecar.origin_lon, sidecar.origin_lat)
     cos_lat0 = math.cos(math.radians(sidecar.origin_lat))
     e = np.array([p[0] for p in corners])
@@ -260,9 +303,7 @@ def test_spherical_flat_enu_is_the_remaining_registration_error(
         sidecar.origin_lat + np.degrees(n / earth_radius_m),
     )
     err = _px_error_m(
-        _registered(sidecar, epsg),
-        corners,
-        np.column_stack([east - east0, north - north0]),
+        _mosaic(sidecar), corners, np.column_stack([east - east0, north - north0])
     )
     assert 0.5 < err.max() < 3.0, f"{name}: spherical-ENU residual {err.max():.4f} m"
 
@@ -306,10 +347,15 @@ def test_sample_applies_grid_scale() -> None:
     assert tuple(_scale_probe(1.0)[10, 10]) == (0, 0, 0)
 
 
-# --- no shipped output moves -------------------------------------------------
+# --- the shipped snapshot, pinned against the re-registered frame ------------
 
+# Recaptured when the Monaco sidecar was re-emitted from the UTM geotransform:
+# θ moved from 0° to −1.090176° and the origin from the hand-rounded
+# (43.736872, 7.423325) to the raster centre's (43.736871113, 7.423323737), so
+# the Massenet crop legitimately moved. The digest is the pin that a *later*
+# change does not move it again unnoticed.
 MONACO_MASSENET_SAMPLE_SHA256 = (
-    "f7a0c2c19f216fdd48fb43c4bed78adcc6ba45de86cafb3d7fb7962f6e3d4c94"
+    "b50f6a5a13fd92722f725176f25d0aa98a4cf67f9abf4b12bb14d12b5a6cd9b5"
 )
 
 
@@ -318,10 +364,6 @@ MONACO_MASSENET_SAMPLE_SHA256 = (
     reason="monaco_mosaic.png is build output (gitignored); rebuild via scripts/build_monaco_mosaic.sh",
 )
 def test_monaco_snapshot_sample_is_byte_identical() -> None:
-    """Schema and math changed; shipped sidecar values did not, so nothing moves.
-
-    The digest was captured from the Massenet snapshot before ADR-0004 landed.
-    """
     from twinkly_mockup.config import load_config
 
     cfg = load_config(CONFIGS / "monaco_massenet.yaml")

@@ -149,9 +149,9 @@ def test_rejects_too_few_vertices(tmp_path: Path) -> None:
 # The shipped yaw_rad equals tangent + π/2 (wrapped to (-π, π]) — see the
 # `YAW_BIAS_RAD` derivation in scripts/derive_corner_poses.py.
 MONACO_CORNERS: list[tuple[str, float, float, float, float]] = [
-    ("massenet", 426.525, 461.197, 0.937199, 2.507995),
-    ("loews", 516.688, 383.941, 1.700252, -3.012137),
-    ("tabac", -119.038, -161.636, -0.991609, 0.579187),
+    ("massenet", 426.626, 461.295, 0.937199, 2.507995),
+    ("loews", 516.789, 384.040, 1.700252, -3.012136),
+    ("tabac", -118.936, -161.537, -0.991609, 0.579187),
 ]
 
 

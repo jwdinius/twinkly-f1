@@ -9,9 +9,10 @@
 #      isotropic meters-per-pixel — required by Mosaic's single m_per_px
 #      sidecar field. gdal_translate then dumps the UTM raster to PNG.
 #
-# The sidecar configs/monaco_mosaic.yaml encodes the geo-registration that
-# pairs with the PNG (image center → origin lat/lon, UTM pixel size as
-# m_per_px). If you re-bbox or re-GSD the build, re-derive the sidecar.
+#   3. emit_mosaic_sidecar.py reads the warped UTM raster's geotransform and
+#      SRS and writes configs/monaco_mosaic.yaml, so the Mosaic and its Sidecar
+#      are always produced together and no geometry value is ever hand-typed
+#      (ADR-0004). Re-bboxing or re-GSDing the build re-registers it for free.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -35,4 +36,10 @@ gdal_translate -of PNG -ot Byte \
     "$SCRATCH/monaco/monaco_utm.tif" configs/monaco_mosaic.png
 
 echo "wrote configs/monaco_mosaic.png ($(du -h configs/monaco_mosaic.png | cut -f1))"
-echo "sidecar: configs/monaco_mosaic.yaml — re-derive origin_px / m_per_px if bbox or GSD changed."
+
+# Stage 3: emit the sidecar from the UTM raster we just warped.
+uv run scripts/emit_mosaic_sidecar.py "$SCRATCH/monaco/monaco_utm.tif" \
+    --png monaco_mosaic.png \
+    --out configs/monaco_mosaic.yaml \
+    --title "Monaco GP circuit — top-down satellite mosaic for the layout sweep." \
+    --note "Built by scripts/build_monaco_mosaic.sh: submodules/racetrack-mosaic fetches Google Satellite tiles for bbox 43.7320,7.4170 -> 43.7415,7.4300 at a requested GSD of 25 cm/px (source zoom 19, 400 tiles), then gdalwarp reprojects to UTM Zone 32N for isotropic metres per pixel."
