@@ -18,10 +18,11 @@ Two reasons the app is served rather than opened off the filesystem:
 
 Routes:
 
-    GET /                       -> redirect to the tracer
-    GET /api/circuits           -> the manifest, as a list
-    GET /api/circuits/<name>    -> one resolved circuit, or 404
-    GET /<anything else>        -> static file from the repo root
+    GET /                            -> redirect to the tracer
+    GET /api/circuits                -> the manifest, as a list
+    GET /api/circuits/<name>         -> one resolved circuit, or 404
+    GET /api/circuits/<name>/seed    -> both edges, offset from the centerline
+    GET /<anything else>             -> static file from the repo root
 
 A circuit that is not in the manifest 404s with a message naming the manifest
 and the circuits that *are* in it. There is deliberately no fallback circuit:
@@ -38,6 +39,7 @@ import argparse
 import json
 import sys
 import webbrowser
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from http import HTTPStatus
@@ -51,16 +53,10 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from twinkly_mockup.centerline import read_linestring_lonlat  # noqa: E402
 from twinkly_mockup.mosaic import MosaicSidecar  # noqa: E402
+from twinkly_mockup.seed import drop_seam_vertex, seed_boundary  # noqa: E402
 
 DEFAULT_MANIFEST = REPO_ROOT / "configs" / "circuits.json"
 TRACER_PATH = "/scripts/trace_track_limits.html"
-
-# A centerline whose first and last vertex agree to this many degrees is a
-# closed lap with a duplicated seam vertex — the f1-circuits convention. ~1e-6°
-# is ~0.1 m, far below the vertex spacing and far above float noise. The
-# duplicate is dropped so that vertex 0 has two distinct neighbours, which is
-# what the seeding step's angle bisector needs (ADR-0003).
-SEAM_TOL_DEG = 1e-6
 
 REQUIRED_KEYS = ("name", "title", "mosaic", "sidecar", "centerline", "half_width_m", "attribution")
 
@@ -156,13 +152,7 @@ def resolve_circuit(circuit: Circuit, *, repo_root: Path = REPO_ROOT) -> dict:
         raise ManifestError(f"circuit `{circuit.name}`: {circuit.sidecar} is not a YAML mapping")
     sidecar = MosaicSidecar.model_validate(raw)
 
-    coords = [list(c) for c in read_linestring_lonlat(circuit.centerline)]
-    closed = (
-        abs(coords[0][0] - coords[-1][0]) < SEAM_TOL_DEG
-        and abs(coords[0][1] - coords[-1][1]) < SEAM_TOL_DEG
-    )
-    if closed:
-        coords.pop()
+    coords, closed = drop_seam_vertex(read_linestring_lonlat(circuit.centerline))
 
     return {
         "name": circuit.name,
@@ -182,8 +172,33 @@ def resolve_circuit(circuit: Circuit, *, repo_root: Path = REPO_ROOT) -> dict:
             "utm_epsg": sidecar.utm_epsg,
             "grid_scale": sidecar.grid_scale,
         },
-        "centerline": coords,
+        "centerline": [list(c) for c in coords],
         "centerline_closed": closed,
+    }
+
+
+def resolve_seed(circuit: Circuit) -> dict:
+    """Seed both edges for a circuit, ready for the tracer's working store.
+
+    Seeding is a server call rather than page arithmetic because it happens once
+    per circuit, on geometry the server already has open, and because the miter
+    clamp is the kind of thing that wants a `pytest` around it. Dragging is the
+    part that has to be local, and dragging needs no geometry beyond the frame.
+    """
+    resolved = resolve_circuit(circuit)
+    seed = seed_boundary(
+        resolved["centerline"],
+        circuit.half_width_m,
+        closed=resolved["centerline_closed"],
+    )
+    return {
+        "name": circuit.name,
+        "half_width_m": seed.half_width_m,
+        "miter_limit": seed.miter_limit,
+        "closed": resolved["centerline_closed"],
+        "left": [list(p) for p in seed.left],
+        "right": [list(p) for p in seed.right],
+        "clamped": list(seed.clamped),
     }
 
 
@@ -218,7 +233,13 @@ class TracerHandler(SimpleHTTPRequestHandler):
             self._api_index()
             return
         if route.startswith("/api/circuits/"):
-            self._api_circuit(route[len("/api/circuits/") :])
+            parts = route[len("/api/circuits/") :].split("/")
+            if len(parts) == 1:
+                self._with_circuit(parts[0], resolve_circuit)
+            elif parts[1:] == ["seed"]:
+                self._with_circuit(parts[0], resolve_seed)
+            else:
+                self._json(HTTPStatus.NOT_FOUND, {"error": f"no such endpoint: {route}"})
             return
         if route.startswith("/api/"):
             self._json(HTTPStatus.NOT_FOUND, {"error": f"no such endpoint: {route}"})
@@ -242,7 +263,13 @@ class TracerHandler(SimpleHTTPRequestHandler):
             },
         )
 
-    def _api_circuit(self, name: str) -> None:
+    def _with_circuit(self, name: str, build: Callable[[Circuit], dict]) -> None:
+        """Look a circuit up, then answer with `build(circuit)`.
+
+        Every per-circuit endpoint shares this so they share one 404: a name the
+        manifest does not declare gets the same explicit refusal, naming the
+        manifest and what *is* in it, whichever endpoint it arrived at.
+        """
         try:
             circuits = load_manifest(self.manifest_path)
         except ManifestError as e:
@@ -262,7 +289,7 @@ class TracerHandler(SimpleHTTPRequestHandler):
             )
             return
         try:
-            payload = resolve_circuit(circuit)
+            payload = build(circuit)
         except (ManifestError, ValueError) as e:
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
             return

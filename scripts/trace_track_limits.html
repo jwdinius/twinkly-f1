@@ -91,6 +91,13 @@
     </div>
 
     <div class="grp">
+      <div class="seg"><button id="seed">Seed both edges from centerline</button></div>
+      <div class="stat" id="seedhint">A seed is a constant-width oval offset from the
+        centerline — <b>not</b> a track limit. Drag it onto the painted lines before
+        exporting.</div>
+    </div>
+
+    <div class="grp">
       <div class="seg"><button id="undo">Undo point</button><button id="fit">Fit view</button></div>
       <div class="seg"><button id="clrL">Clear left</button><button id="clrR">Clear right</button></div>
     </div>
@@ -138,7 +145,18 @@ function pxToLonLat(px,py){ return framePxToLonLat(F,px,py); }
 function lonLatToPx(lon,lat){ return frameLonLatToPx(F,lon,lat); }
 const toPx = ll => ll.map(([lo,la])=>lonLatToPx(lo,la));
 
+// Pixel mirror of `pts`, rebuilt on every mutation. Drawing and hit-testing
+// both want pixels and both run per frame; reprojecting 300 vertices each time
+// is affordable but pointless, and keeping the mirror next to the mutations
+// keeps it from drifting.
+const PX={L:[],R:[]};
+function reproject(key){ PX[key]=toPx(pts[key]); }
+
 // ---------- state ----------
+// `pts` holds lon/lat, not pixels. Pixels are a property of the mosaic the
+// circuit happens to be traced over; a rebuilt mosaic with a different origin
+// or GSD would silently move every saved vertex. Lon/lat is what the edges
+// *are*, and it is what gets exported, so the working store speaks it too.
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d'), $=id=>document.getElementById(id);
 let CFG=null, img=null, imgW=0, imgH=0, s=1, ox=0, oy=0;
 let CL_PX=[], pts={L:[],R:[]}, active='L';
@@ -146,8 +164,9 @@ const show={CL:true,L:true,R:true};
 let dpr=Math.max(1,devicePixelRatio||1);
 let hover=null;                         // {layer,i} vertex under cursor
 const GRAB=9;                           // screen px grab radius
-function LSKEY(){ return 'tracer_'+CFG.name+'_v2'; }
+function LSKEY(){ return 'tracer_'+CFG.name+'_v3'; }   // v2 stored pixels
 function save(){ try{ localStorage.setItem(LSKEY(),JSON.stringify(pts)); }catch(e){} }
+function hasWork(){ return pts.L.length>0||pts.R.length>0; }
 
 // ---------- view ----------
 function toScreen(px,py){ return [px*s+ox, py*s+oy]; }
@@ -172,7 +191,7 @@ function draw(){
   hud();
 }
 function drawEdge(key,cssvar){
-  if(!show[key])return; const arr=pts[key]; if(!arr.length)return;
+  if(!show[key])return; const arr=PX[key]; if(!arr.length)return;
   const color=getComputedStyle(document.documentElement).getPropertyValue('--'+cssvar).trim();
   ctx.strokeStyle=color; ctx.lineWidth=key===active?2.2:1.6;
   polyline(arr, $('tglClose').checked);
@@ -190,12 +209,12 @@ function hud(){
 
 // ---------- hit testing ----------
 function nearestVertex(sx,sy,layer){
-  let best=null; pts[layer].forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]);
+  let best=null; PX[layer].forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]);
     const d=Math.hypot(x-sx,y-sy); if(d<=GRAB&&(!best||d<best.d))best={i,d}; });
   return best;
 }
 function nearestSegment(sx,sy,layer){         // returns {i,d} where insert goes after i
-  const a=pts[layer]; if(a.length<2)return null;
+  const a=PX[layer]; if(a.length<2)return null;
   const N=$('tglClose').checked?a.length:a.length-1; let best=null;
   for(let i=0;i<N;i++){ const p=toScreen(a[i][0],a[i][1]), q=toScreen(a[(i+1)%a.length][0],a[(i+1)%a.length][1]);
     const vx=q[0]-p[0],vy=q[1]-p[1], L2=vx*vx+vy*vy||1;
@@ -230,7 +249,7 @@ function hideMenu(){ $('ctx').style.display='none'; ctxTarget=null; }
 function nearestVertexAny(sx,sy,rad){       // search both visible layers
   let best=null;
   ['L','R'].forEach(layer=>{ if(!show[layer])return;
-    pts[layer].forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]);
+    PX[layer].forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]);
       const d=Math.hypot(x-sx,y-sy); if(d<=rad&&(!best||d<best.d))best={layer,i,d}; }); });
   return best;
 }
@@ -242,7 +261,9 @@ cv.addEventListener('mousedown',e=>{
   down={x:e.offsetX,y:e.offsetY,ox,oy}; moved=false;
 });
 cv.addEventListener('mousemove',e=>{
-  if(drag){ pts[active][drag.i]=toImg(e.offsetX,e.offsetY); moved=true; draw(); }
+  if(drag){ const p=toImg(e.offsetX,e.offsetY);
+    PX[active][drag.i]=p; pts[active][drag.i]=pxToLonLat(p[0],p[1]);
+    moved=true; draw(); }
   else if(down){ const dx=e.offsetX-down.x,dy=e.offsetY-down.y;
     if(Math.abs(dx)+Math.abs(dy)>3)moved=true;
     if(moved){ ox=down.ox+dx; oy=down.oy+dy; draw(); } }
@@ -257,13 +278,14 @@ window.addEventListener('mouseup',e=>{
   if(down&&!moved&&img){                        // a click
     const [px,py]=toImg(down.x,down.y);
     if(px>=0&&py>=0&&px<=imgW&&py<=imgH){
+      const ll=pxToLonLat(px,py);
       if(e.shiftKey){                           // shift-click: insert between existing points
         const seg=nearestSegment(down.x,down.y,active);
-        if(seg) pts[active].splice(seg.i+1,0,[px,py]); else pts[active].push([px,py]);
+        if(seg) pts[active].splice(seg.i+1,0,ll); else pts[active].push(ll);
       } else {
-        pts[active].push([px,py]);              // plain click: append to end (join to previous only)
+        pts[active].push(ll);                   // plain click: append to end (join to previous only)
       }
-      save(); draw();
+      reproject(active); save(); draw();
     }
   }
   down=null;
@@ -279,7 +301,8 @@ cv.addEventListener('contextmenu',e=>{ e.preventDefault();
   m.style.top=Math.min(e.offsetY,cv.clientHeight-70)+'px';
   m.style.display='block'; draw();
 });
-$('ctxRemove').onclick=()=>{ if(ctxTarget){ pts[ctxTarget.layer].splice(ctxTarget.i,1); save(); }
+$('ctxRemove').onclick=()=>{ if(ctxTarget){ pts[ctxTarget.layer].splice(ctxTarget.i,1);
+    reproject(ctxTarget.layer); save(); }
   hover=null; hideMenu(); draw(); };
 cv.addEventListener('wheel',e=>{ e.preventDefault(); hideMenu(); if(!img)return;
   const [ipx,ipy]=toImg(e.offsetX,e.offsetY);
@@ -289,7 +312,7 @@ cv.addEventListener('wheel',e=>{ e.preventDefault(); hideMenu(); if(!img)return;
 
 // ---------- KML ----------
 function buildKML(name,arr,close){
-  const ll=arr.map(([px,py])=>pxToLonLat(px,py));
+  const ll=arr.slice();
   if(close&&ll.length>1)ll.push(ll[0]);
   const coords=ll.map(([lo,la])=>`${lo},${la},0`).join(' ');
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -311,11 +334,10 @@ function download(fname,text){ const a=$('dl');
 function importKML(text,key){
   const m=text.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
   if(!m){ alert('no <coordinates> in KML'); return; }
-  const ll=m[1].trim().split(/\s+/).map(t=>t.split(',').map(Number));
-  let arr=ll.map(([lo,la])=>lonLatToPx(lo,la));
+  const arr=m[1].trim().split(/\s+/).map(t=>{const c=t.split(',').map(Number);return [c[0],c[1]];});
   if(arr.length>1){ const a=arr[0],b=arr[arr.length-1];
-    if(Math.hypot(a[0]-b[0],a[1]-b[1])<1)arr.pop(); }
-  pts[key]=arr; save(); draw();
+    if(a[0]===b[0]&&a[1]===b[1])arr.pop(); }
+  pts[key]=arr; reproject(key); save(); draw();
 }
 
 // ---------- UI ----------
@@ -326,10 +348,35 @@ $('tglCL').onchange=e=>{show.CL=e.target.checked;draw();};
 $('tglL').onchange=e=>{show.L=e.target.checked;draw();};
 $('tglR').onchange=e=>{show.R=e.target.checked;draw();};
 $('tglClose').onchange=draw;
-$('undo').onclick=()=>{ if(pts[active].length){pts[active].pop();save();draw();} };
+$('undo').onclick=()=>{ if(pts[active].length){pts[active].pop();reproject(active);save();draw();} };
 $('fit').onclick=fit;
-$('clrL').onclick=()=>{ if(confirm('Clear left edge?')){pts.L=[];save();draw();} };
-$('clrR').onclick=()=>{ if(confirm('Clear right edge?')){pts.R=[];save();draw();} };
+$('clrL').onclick=()=>{ if(confirm('Clear left edge?')){pts.L=[];reproject('L');save();draw();} };
+$('clrR').onclick=()=>{ if(confirm('Clear right edge?')){pts.R=[];reproject('R');save();draw();} };
+
+// ---------- seeding ----------
+// Both edges come from one centerline, so they cannot disagree about direction
+// or about where index 0 is (ADR-0003). A seed is a constant-width oval and not
+// a track limit — the panel says so, because exporting one undragged would feed
+// the solver exactly that oval.
+$('seed').onclick=async()=>{
+  if(!CFG)return;
+  // Working state is hours of dragging and the server has no idea it exists;
+  // never discard it on a single click.
+  if(hasWork()&&!confirm(
+      'Re-seed '+CFG.title+'?\n\nThis replaces the current left and right edges '
+      +'('+pts.L.length+' + '+pts.R.length+' vertices) with a fresh offset of the '
+      +'centerline. Any dragging you have done is lost.')) return;
+  try{
+    const seed=await api('/api/circuits/'+encodeURIComponent(CFG.name)+'/seed');
+    pts={L:seed.left,R:seed.right};
+    reproject('L'); reproject('R'); save(); draw();
+    $('seedhint').innerHTML='seeded '+seed.left.length+' vertices per edge at <b>'
+      +seed.half_width_m+' m</b> half-width'
+      +(seed.clamped.length?' · <b>'+seed.clamped.length+'</b> corner(s) hit the '
+        +seed.miter_limit+'× miter clamp':'');
+    clearError();
+  }catch(e){ showError('could not seed '+CFG.name+': '+e.message); }
+};
 $('expL').onclick=()=>download(CFG.name+'_left.kml',buildKML(CFG.name+'_left',pts.L,$('tglClose').checked));
 $('expR').onclick=()=>download(CFG.name+'_right.kml',buildKML(CFG.name+'_right',pts.R,$('tglClose').checked));
 $('impL').onchange=e=>{const f=e.target.files[0]; if(f)f.text().then(t=>importKML(t,'L'));};
@@ -372,6 +419,11 @@ function boot(cfg){
   $('attrib').textContent=cfg.attribution;
   let saved=null; try{ saved=JSON.parse(localStorage.getItem(LSKEY())); }catch(e){}
   pts=(saved&&saved.L&&(saved.L.length||saved.R.length))?saved:{L:[],R:[]};
+  reproject('L'); reproject('R');
+  $('seedhint').innerHTML=hasWork()
+    ? 'restored <b>'+pts.L.length+'</b> left / <b>'+pts.R.length+'</b> right vertices from this browser'
+    : 'A seed is a constant-width oval offset from the centerline — <b>not</b> a '
+      +'track limit. Drag it onto the painted lines before exporting.';
   resize(); autoLoad();
 }
 

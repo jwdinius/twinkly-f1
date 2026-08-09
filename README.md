@@ -54,6 +54,13 @@ optimal trajectory computed by [`fastest-lap`](submodules/fastest-lap):
    **adding a circuit is an entry in that file and nothing else**. The mosaic
    PNGs are gitignored build output — if one is missing, the tracer says so and
    names the build script.
+
+   **Seed both edges first**, then drag. Seeding offsets the centerline's
+   vertices one for one, so both edges inherit its direction and its index 0 —
+   the two things independently hand-traced edges keep getting wrong, and that
+   the solver cannot tell you about. What you get is a *seed boundary*: a
+   constant-width oval, explicitly **not** a track limit. Exporting one
+   undragged would hand the solver that oval.
 3. **Optimal trajectory** — `fastest-lap` runs in its Docker container against
    the traced circuit and emits the minimum-lap-time line, which
    `twinkly-mockup import-lap` converts into the renderer's trajectory CSV.

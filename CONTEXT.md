@@ -20,6 +20,17 @@ edges start out offset by. Adding a circuit means adding an entry — a circuit
 is described nowhere else, and one that is absent from the manifest is not
 traceable.
 
+### Seed boundary
+Both track edges as first generated: the Centerline's vertices offset, one for
+one, along their angle-bisector normals at the circuit's constant half-width.
+It is **not** a Track-limit KML. It is a constant-width oval, and a real
+circuit is neither constant-width nor bounded by an offset of its middle — an
+undragged seed is a fiction, and exporting one would hand the solver that
+oval. What it *is* is a starting point that already has the two properties a
+pair of hand-traced edges keeps getting wrong: one shared direction and one
+shared index 0, inherited from the single Centerline both came from. A seed
+becomes a Track-limit KML only by being dragged onto the painted lines.
+
 ### Track-limit KML
 A pair of lat/lon `LineString`s — one **left** edge, one **right** edge —
 each tracing a *physical* track boundary (white line / Armco). This is the

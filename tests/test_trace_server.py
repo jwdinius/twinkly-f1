@@ -293,6 +293,38 @@ def test_a_declared_circuit_serves_its_boot_document(server: int, name: str) -> 
     assert payload["mosaic_url"] == f"/configs/{name}_mosaic.png"
 
 
+@pytest.mark.parametrize("name", SHIPPED)
+def test_a_declared_circuit_serves_a_seed_for_both_edges(server: int, name: str) -> None:
+    """The geometry is `test_seed.py`'s; what matters here is that it arrives."""
+    status, _, body = get(server, f"/api/circuits/{name}/seed")
+    assert status == 200
+    seed = json.loads(body)
+
+    boot = trace.resolve_circuit(trace.load_manifest(MANIFEST)[name])
+    assert len(seed["left"]) == len(boot["centerline"])
+    assert len(seed["right"]) == len(boot["centerline"])
+    assert seed["half_width_m"] == boot["half_width_m"]
+    assert seed["closed"] is boot["centerline_closed"]
+    # lon/lat, not pixels — the working store and the export both speak it.
+    for lon, lat in seed["left"] + seed["right"]:
+        assert -180.0 <= lon <= 180.0 and -90.0 <= lat <= 90.0
+
+
+def test_seeding_an_undeclared_circuit_404s_like_every_other_endpoint(server: int) -> None:
+    status, _, body = get(server, "/api/circuits/spa/seed")
+    assert status == 404
+    assert "not declared" in json.loads(body)["error"]
+
+
+def test_an_unknown_sub_endpoint_does_not_fall_through_to_the_boot_document(
+    server: int,
+) -> None:
+    """`/monaco/typo` must not quietly answer as if it were `/monaco`."""
+    status, _, body = get(server, "/api/circuits/monaco/typo")
+    assert status == 404
+    assert "no such endpoint" in json.loads(body)["error"]
+
+
 def test_an_undeclared_circuit_404s_and_says_what_is_declared(server: int) -> None:
     """The criterion this file exists for: an explicit failure, never a fallback."""
     status, _, body = get(server, "/api/circuits/spa")
