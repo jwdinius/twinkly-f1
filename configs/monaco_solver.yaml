@@ -1,12 +1,19 @@
 # Monaco optimal-lap solve request, consumed by `twinkly-mockup solve-lap`
 # (see src/twinkly_mockup/solver.py and ADR-0002).
 #
+# NOT a validation target. Monaco runs through the Portier-to-Tabac tunnel, and
+# no top-down satellite mosaic can show track that is under a building — the
+# renderer would black out a fifth of the lap. Silverstone replaced it; see
+# configs/silverstone_solver.yaml. This file is kept so the solver keeps a
+# second circuit's config to load, and it is retained as a regression fixture.
+#
 # left_kml/right_kml are the track-limit KMLs — author them in the in-repo
-# tracer, scripts/trace_track_limits.html (see ADR-0003). They do NOT exist
-# until that manual step is done; the solver run is blocked on them.
+# tracer, scripts/trace_track_limits.html (see ADR-0003). They do NOT exist:
+# Monaco was never traced, so this config cannot actually be solved.
 #
 # Paths are relative to this file's directory. The two KMLs must live under this
 # directory (it is mounted read-only into the container).
+circuit: monaco
 left_kml: monaco_left.kml
 right_kml: monaco_right.kml
 

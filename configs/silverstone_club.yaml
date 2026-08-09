@@ -1,0 +1,24 @@
+# Silverstone snapshot: Club exit (Turn 18) onto the Hamilton straight, running
+# past The Wing. The highest-contrast point on the lap (σ=44 of grey over the
+# LEGO-scale crop, against a lap median of 2.9): pit wall, painted track edge and
+# grandstand shadow all fall inside the viewport. This is the snapshot that
+# answers "does anything read as track at all?" — Silverstone's 7 m half-width
+# puts both edges outside a 12x8 m crop nearly everywhere else, so most of the
+# lap samples as bare asphalt.
+#
+# (x_m, y_m, yaw_rad) are derived from configs/silverstone_centerline.geojson via
+# scripts/derive_corner_poses.py — re-run that script if either the centerline
+# or the corner lat/lon hint changes (a regression test pins these values).
+# viewport_m is left unset so the layout sweep can derive a layout-appropriate
+# crop (see Config.viewport_m).
+layout_config: layout_standard.yaml
+
+snapshot:
+  mosaic: silverstone_mosaic.yaml
+  x_m: -520.488
+  y_m: -402.204
+  yaw_rad: 2.590793
+
+car:
+  dimensions_cm: [61.0, 25.0]
+  orientation_deg: -90.0

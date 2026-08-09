@@ -116,7 +116,7 @@ def import_lap_cmd(
         exists=True,
         dir_okay=False,
         readable=True,
-        help="fastest-lap circuit XML carrying <GPS_parameters> (e.g. monaco.xml).",
+        help="fastest-lap circuit XML carrying <GPS_parameters> (e.g. silverstone.xml).",
     ),
     mosaic: Path = typer.Option(
         ...,
@@ -161,7 +161,7 @@ def solve_lap_cmd(
         exists=True,
         dir_okay=False,
         readable=True,
-        help="Solver config YAML (e.g. configs/monaco_solver.yaml).",
+        help="Solver config YAML (e.g. configs/silverstone_solver.yaml).",
     ),
     out: Path = typer.Option(
         ...,
@@ -185,7 +185,7 @@ def solve_lap_cmd(
         help="Compile libfastestlapc first (skip if already compiled).",
     ),
 ) -> None:
-    """Solve the Monaco optimal lap in Docker (ADR-0002).
+    """Solve a circuit's optimal lap in Docker (ADR-0002).
 
     Runs the fastest-lap solver entirely inside its container and writes the
     circuit XML + a native `time,x,y,yaw` CSV into `--out`. Feed those to
@@ -206,7 +206,7 @@ def solve_lap_cmd(
     typer.echo(
         "next: twinkly-mockup import-lap "
         f"{artifacts.native_csv} --circuit {artifacts.circuit_xml} "
-        f"--mosaic configs/monaco_mosaic.yaml --out <trajectory.csv>"
+        f"--mosaic configs/{config.circuit}_mosaic.yaml --out <trajectory.csv>"
     )
 
 

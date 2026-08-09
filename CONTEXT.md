@@ -1,8 +1,25 @@
 # Context — twinkly-f1
 
-Glossary of the domain language for the LEGO MCL39 + Twinkly Squares Monaco
+Glossary of the domain language for the LEGO MCL39 + Twinkly Squares circuit
 display. Definitions only — no implementation details. When code or docs name
 one of these concepts, use the term exactly as defined here.
+
+## The circuit under validation
+
+**Silverstone.** Monaco was the original target and is retained only as a
+regression fixture — a second circuit that keeps the Circuit manifest honest.
+It is not a validation target and no further work goes into it: Monaco runs
+through the Portier-to-Tabac tunnel, and a Mosaic is satellite imagery, so a
+fifth of the lap is roof. There is no Mosaic of a road under a building, which
+means the LED renderer cannot show that stretch and the Track-limit KML cannot
+be traced across it.
+
+Silverstone costs something in exchange. It is 5.89 km against Monaco's 3.34 km
+and roughly 15 m wide against Monaco's 10 m, so at the LEGO-scale viewport both
+of its painted edges fall outside the crop nearly everywhere and a snapshot
+centred on the Centerline samples bare asphalt. Measured over every Centerline
+vertex, crop contrast has median σ=2.9 against Monaco's σ=35.4. Corner picks for
+the layout sweep are therefore made by contrast, not by corner reputation.
 
 ## Terms
 
@@ -44,6 +61,14 @@ A geo-registered raster satellite image of the circuit. Two roles: (1) the
 image the tracer displays when authoring the Track-limit KML, and (2) the image
 source the LED renderer crops/rotates/downsamples per frame. Produced raster,
 never vector — it carries no track geometry.
+
+Its **download region** is derived, not chosen: `scripts/centerline_bbox.py`
+takes the Centerline's own lat/lon extent and grows it by a margin in metres
+(100 m by default, `MARGIN_M` in the build scripts). That is the definition of
+"big enough" here — every Centerline vertex inside the imagery with room for
+the track limits and run-off — and of "no bigger", since imagery the Centerline
+never reaches is tiles fetched and warped for nothing. A hand-typed bbox drifts
+from the GeoJSON silently; a derived one cannot.
 
 ### Sidecar
 The registration record the LED renderer needs to project ENU meters ↔ mosaic

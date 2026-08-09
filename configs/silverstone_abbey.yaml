@@ -1,0 +1,21 @@
+# Silverstone snapshot: Abbey (Turn 1), the fast right off the end of the
+# Hamilton straight. The high-speed turn-in case — heading changes quickly but
+# under far less rotation than Luffield, so the two bracket the yaw-rate range.
+# Third-highest crop contrast on the lap (σ=28): runoff edge and grandstand.
+#
+# (x_m, y_m, yaw_rad) are derived from configs/silverstone_centerline.geojson via
+# scripts/derive_corner_poses.py — re-run that script if either the centerline
+# or the corner lat/lon hint changes (a regression test pins these values).
+# viewport_m is left unset so the layout sweep can derive a layout-appropriate
+# crop (see Config.viewport_m).
+layout_config: layout_standard.yaml
+
+snapshot:
+  mosaic: silverstone_mosaic.yaml
+  x_m: -231.470
+  y_m: -23.000
+  yaw_rad: 2.470927
+
+car:
+  dimensions_cm: [61.0, 25.0]
+  orientation_deg: -90.0

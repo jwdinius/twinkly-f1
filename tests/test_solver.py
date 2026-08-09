@@ -24,7 +24,7 @@ from twinkly_mockup.cli import app
 from twinkly_mockup.import_lap import load_native_lap
 from twinkly_mockup.solver import (
     BASE_IMAGE_TAG,
-    CIRCUIT_XML_NAME,
+    circuit_xml_name,
     NATIVE_CSV_NAME,
     RUN_IMAGE_TAG,
     SolverConfig,
@@ -155,6 +155,7 @@ def _write_config(dir_: Path, *, vehicle: str = "veh.xml") -> Path:
     (dir_ / vehicle).write_text("<vehicle/>")
     path = dir_ / "solver.yaml"
     path.write_text(
+        "circuit: monaco\n"
         "left_kml: monaco_left.kml\n"
         "right_kml: monaco_right.kml\n"
         f"vehicle_xml: {vehicle}\n"
@@ -174,7 +175,9 @@ def test_load_solver_config_resolves_paths_against_config_dir(tmp_path: Path) ->
 
 def test_load_solver_config_rejects_unknown_keys(tmp_path: Path) -> None:
     path = tmp_path / "bad.yaml"
-    path.write_text("left_kml: a\nright_kml: b\nvehicle_xml: c\nbogus: 1\n")
+    path.write_text(
+        "circuit: monaco\nleft_kml: a\nright_kml: b\nvehicle_xml: c\nbogus: 1\n"
+    )
     with pytest.raises(Exception):  # pydantic ValidationError (extra=forbid)
         load_solver_config(path)
 
@@ -212,6 +215,7 @@ def _config(tmp_path: Path) -> tuple[SolverConfig, Path]:
     veh.parent.mkdir(parents=True)
     veh.write_text("<vehicle/>")
     config = SolverConfig(
+        circuit="monaco",
         left_kml=cfg_dir / "monaco_left.kml",
         right_kml=cfg_dir / "monaco_right.kml",
         vehicle_xml=veh,
@@ -241,7 +245,7 @@ def test_driver_cmd_translates_host_paths_to_container_mounts(tmp_path: Path) ->
     assert cmd[cmd.index("--right") + 1] == "/config/monaco_right.kml"
     vehicle = cmd[cmd.index("--vehicle") + 1]
     assert vehicle == "/fastest-lap/database/vehicles/f1/limebeer-2014-f1.xml"
-    assert cmd[cmd.index("--circuit-xml") + 1] == f"/out/{CIRCUIT_XML_NAME}"
+    assert cmd[cmd.index("--circuit-xml") + 1] == f"/out/{circuit_xml_name(config)}"
     assert cmd[cmd.index("--out-csv") + 1] == f"/out/{NATIVE_CSV_NAME}"
     assert cmd[cmd.index("--n-elements") + 1] == "750"
     assert "--closed" in cmd
@@ -307,7 +311,7 @@ def test_solve_lap_runs_four_stages_in_order(tmp_path: Path) -> None:
     assert calls[1][:2] == ["docker", "build"] and RUN_IMAGE_TAG in calls[1]
     assert calls[2][:2] == ["docker", "run"] and "cmake" in " ".join(calls[2])
     assert calls[3][:2] == ["docker", "run"] and "python3" in calls[3]
-    assert artifacts.circuit_xml == out_dir / CIRCUIT_XML_NAME
+    assert artifacts.circuit_xml == out_dir / circuit_xml_name(config)
     assert artifacts.native_csv == out_dir / NATIVE_CSV_NAME
     assert out_dir.exists()  # created for the mount
 

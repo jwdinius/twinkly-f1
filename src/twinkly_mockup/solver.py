@@ -46,9 +46,16 @@ OUT_MOUNT = "/out"
 DRIVER_MOUNT = "/work"
 
 DRIVER_NAME = "solve_lap.py"
-# Artifact names the driver writes into the output dir.
-CIRCUIT_XML_NAME = "monaco.xml"
+# Artifact names the driver writes into the output dir. The circuit XML is named
+# after the circuit being solved, not fixed — an `artifacts/` dir holding a
+# `monaco.xml` from a Silverstone solve is a trap, and the XML is the file
+# `import-lap` is later pointed at by hand.
 NATIVE_CSV_NAME = "lap.csv"
+
+
+def circuit_xml_name(config: "SolverConfig") -> str:
+    """Filename the driver writes the fastest-lap circuit XML under."""
+    return f"{config.circuit}.xml"
 
 # fastest-lap's compile-only base image lives here; we build it, then layer
 # docker/Dockerfile over it.
@@ -62,10 +69,11 @@ class SolverError(ValueError):
 
 
 class SolverConfig(BaseModel):
-    """A Monaco optimal-lap solve request (see configs/monaco_solver.yaml)."""
+    """An optimal-lap solve request (see configs/<circuit>_solver.yaml)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    circuit: str = Field(min_length=1)
     left_kml: Path
     right_kml: Path
     vehicle_xml: Path
@@ -197,7 +205,7 @@ def driver_cmd(
     left = _container_path(config.left_kml, config_dir, CONFIG_MOUNT)
     right = _container_path(config.right_kml, config_dir, CONFIG_MOUNT)
     vehicle = _container_path(config.vehicle_xml, fastest_lap_dir, SUBMODULE_MOUNT)
-    circuit_xml = f"{OUT_MOUNT}/{CIRCUIT_XML_NAME}"
+    circuit_xml = f"{OUT_MOUNT}/{circuit_xml_name(config)}"
     out_csv = f"{OUT_MOUNT}/{NATIVE_CSV_NAME}"
 
     return [
@@ -279,6 +287,6 @@ def solve_lap(
         )
     )
     return SolverArtifacts(
-        circuit_xml=out_dir / CIRCUIT_XML_NAME,
+        circuit_xml=out_dir / circuit_xml_name(config),
         native_csv=out_dir / NATIVE_CSV_NAME,
     )
