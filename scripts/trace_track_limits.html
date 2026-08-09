@@ -37,20 +37,17 @@
           background:rgba(10,12,16,.85); z-index:5; }
   #drop.hide { display:none; }
   .fauxbtn { background:#2a2e3a; border:1px solid #3a3f4d; border-radius:6px; padding:8px 14px; color:var(--ink); cursor:pointer; }
-  a.dl { display:none; }
-  #ctx { position:absolute; z-index:10; display:none; min-width:130px;
-         background:#232733; border:1px solid #3a3f4d; border-radius:6px; padding:4px;
-         box-shadow:0 6px 18px rgba(0,0,0,.55); }
-  #ctx .hd { color:var(--muted); font-size:11px; padding:3px 10px 5px; }
-  #ctx button { display:block; width:100%; text-align:left; border:0; background:transparent;
-                padding:6px 10px; border-radius:4px; }
-  #ctx button:hover { background:#3a2330; color:#ff8a8a; }
   #err { position:absolute; z-index:6; left:12px; right:12px; top:12px; display:none;
          background:#3a1f28; border:1px solid #7d3b4c; border-radius:6px; padding:10px 12px;
          color:#ffb3b3; font-size:12px; white-space:pre-wrap; }
   select { width:100%; background:#2a2e3a; color:var(--ink); border:1px solid #3a3f4d;
            border-radius:6px; padding:7px 9px; font:inherit; }
   .attrib { color:var(--muted); font-size:10px; line-height:1.35; margin-top:8px; }
+  /* A fold has to be findable without hunting: the panel turns red the moment
+     one exists, so an operator who has just seeded a circuit is told rather
+     than left to scan a 160-vertex lap for it. */
+  #foldgrp.bad { background:#3a1f28; border-radius:6px; padding:10px; }
+  #foldgrp.bad #foldstat { color:#ffb3b3; }
 </style>
 </head>
 <body>
@@ -62,7 +59,6 @@
       <label class="fauxbtn">choose file<input id="file" type="file" accept="image/*" hidden></label>
       <div id="dropHint" style="font-size:11px"></div>
     </div>
-    <div id="ctx"><div class="hd" id="ctxHd">point</div><button id="ctxRemove">Remove point</button></div>
     <div id="err"></div>
   </div>
   <div id="panel">
@@ -80,7 +76,10 @@
         <button id="pickL" class="left on"><span class="k" style="background:var(--left)"></span> Left</button>
         <button id="pickR" class="right"><span class="k" style="background:var(--right)"></span> Right</button>
       </div>
-      <div class="stat"><b>click</b> to add a point (joined to the previous one) · <b>drag</b> a point to move · <b>shift-click</b> to insert between points · <b>right-click</b> a point → <b>Remove point</b> · drag empty space to pan · wheel to zoom.</div>
+      <div class="stat"><b>drag</b> a point to move it · <b>double-click</b> a segment to
+        insert one at its midpoint · <b>right-click</b> a point to delete it · drag empty
+        space to pan · wheel to zoom.<br><br>There is no append: an edge is seeded whole
+        and only ever refined, which is what keeps both edges on the same index 0.</div>
     </div>
 
     <div class="grp">
@@ -97,17 +96,19 @@
         exporting.</div>
     </div>
 
+    <div class="grp" id="foldgrp">
+      <div class="stat" id="foldstat">no self-intersections</div>
+      <div class="seg"><button id="foldnext" disabled>Go to next self-intersection</button></div>
+    </div>
+
     <div class="grp">
-      <div class="seg"><button id="undo">Undo point</button><button id="fit">Fit view</button></div>
+      <div class="seg"><button id="fit">Fit view</button></div>
       <div class="seg"><button id="clrL">Clear left</button><button id="clrR">Clear right</button></div>
     </div>
 
     <div class="grp">
       <div class="seg"><button id="expL">Export left KML</button><button id="expR">Export right KML</button></div>
-      <div class="seg">
-        <label class="fauxbtn" style="flex:1;text-align:center">Import left<input id="impL" type="file" accept=".kml" hidden></label>
-        <label class="fauxbtn" style="flex:1;text-align:center">Import right<input id="impR" type="file" accept=".kml" hidden></label>
-      </div>
+      <div class="seg"><button id="impL">Import left</button><button id="impR">Import right</button></div>
       <div class="stat" id="exphint"></div>
     </div>
 
@@ -115,13 +116,11 @@
       <div>left points: <b id="nL">0</b> · right points: <b id="nR">0</b></div>
       <div>zoom: <b id="zoom">–</b> · cursor: <b id="ll">–</b></div>
       <div>centerline: <b id="nCL">–</b> vertices · half-width <b id="hw">–</b></div>
-      <div style="margin-top:8px">autosaves per circuit · <kbd>L</kbd>/<kbd>R</kbd> edge · <kbd>U</kbd> undo · <kbd>F</kbd> fit</div>
+      <div style="margin-top:8px">autosaves per circuit · <kbd>L</kbd>/<kbd>R</kbd> edge · <kbd>X</kbd> next fold · <kbd>F</kbd> fit</div>
       <div class="attrib" id="attrib"></div>
     </div>
   </div>
 </div>
-<a id="dl" class="dl"></a>
-
 <script type="module">
 // The frame transform lives in scripts/tracer/frame.js because Python owns the
 // authoritative implementation and a golden fixture binds the two (ADR-0004);
@@ -133,6 +132,7 @@ import {
   lonLatToPx as frameLonLatToPx,
   pxToLonLat as framePxToLonLat,
 } from './tracer/frame.js';
+import { segmentMidpoint, selfIntersections } from './tracer/geometry.js';
 
 // ---------- geo frame (set on boot) ----------
 // Grid-aware: the raster is UTM, so its pixel axes are grid east/north and the
@@ -150,7 +150,12 @@ const toPx = ll => ll.map(([lo,la])=>lonLatToPx(lo,la));
 // is affordable but pointless, and keeping the mirror next to the mutations
 // keeps it from drifting.
 const PX={L:[],R:[]};
-function reproject(key){ PX[key]=toPx(pts[key]); }
+// Where each edge crosses itself. Recomputed from the pixel mirror on every
+// mutation — including mid-drag, so clearing a fold clears the highlight while
+// the vertex is still under the cursor rather than after letting go.
+const IX={L:[],R:[]};
+function refold(key){ IX[key]=selfIntersections(PX[key], $('tglClose').checked); }
+function reproject(key){ PX[key]=toPx(pts[key]); refold(key); }
 
 // ---------- state ----------
 // `pts` holds lon/lat, not pixels. Pixels are a property of the mosaic the
@@ -163,7 +168,8 @@ let CL_PX=[], pts={L:[],R:[]}, active='L';
 const show={CL:true,L:true,R:true};
 let dpr=Math.max(1,devicePixelRatio||1);
 let hover=null;                         // {layer,i} vertex under cursor
-const GRAB=9;                           // screen px grab radius
+const GRAB=9;                           // screen px grab radius for a vertex
+const INSERT_GRAB=12;                   // screen px a double-click may miss a segment by
 function LSKEY(){ return 'tracer_'+CFG.name+'_v3'; }   // v2 stored pixels
 function save(){ try{ localStorage.setItem(LSKEY(),JSON.stringify(pts)); }catch(e){} }
 function hasWork(){ return pts.L.length>0||pts.R.length>0; }
@@ -188,7 +194,26 @@ function draw(){
   if(show.CL&&CL_PX.length){ ctx.strokeStyle='rgba(255,214,10,.9)'; ctx.lineWidth=1.5;
     ctx.setLineDash([6,5]); polyline(CL_PX,true); ctx.setLineDash([]); }
   drawEdge('R','right'); drawEdge('L','left');
+  drawFolds('R'); drawFolds('L');
   hud();
+}
+// Where an edge crosses itself, marked but never repaired: which way to
+// un-fold a corner is the operator's call, and an automatic answer would be a
+// geometry nobody reviewed handed to a solver that cannot tell (ADR-0003).
+function drawFolds(key){
+  if(!show[key]||!IX[key].length)return;
+  const seen=new Set();
+  ctx.strokeStyle='#ff2d8f'; ctx.lineWidth=3.2;
+  IX[key].forEach(h=>{ [h.a,h.b].forEach(i=>{
+    if(seen.has(i))return; seen.add(i);
+    const a=PX[key][i], b=PX[key][(i+1)%PX[key].length];
+    const p=toScreen(a[0],a[1]), q=toScreen(b[0],b[1]);
+    ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(q[0],q[1]); ctx.stroke();
+  }); });
+  IX[key].forEach(h=>{ const [x,y]=toScreen(h.point[0],h.point[1]);
+    ctx.beginPath(); ctx.arc(x,y,7,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x-4,y-4); ctx.lineTo(x+4,y+4);
+    ctx.moveTo(x+4,y-4); ctx.lineTo(x-4,y+4); ctx.stroke(); });
 }
 function drawEdge(key,cssvar){
   if(!show[key])return; const arr=PX[key]; if(!arr.length)return;
@@ -205,6 +230,25 @@ function drawEdge(key,cssvar){
 function hud(){
   $('nL').textContent=pts.L.length; $('nR').textContent=pts.R.length;
   $('zoom').textContent=img?(s/(Math.min(cv.clientWidth/imgW,cv.clientHeight/imgH))).toFixed(1)+'×':'–';
+  const n=IX.L.length+IX.R.length;
+  $('foldgrp').classList.toggle('bad',n>0);
+  $('foldnext').disabled=n===0;
+  $('foldstat').innerHTML=n
+    ? '<b>'+n+'</b> self-intersection'+(n>1?'s':'')+' — <b>'+IX.L.length+'</b> left, <b>'
+      +IX.R.length+'</b> right. Drag them out; nothing here is repaired for you.'
+    : 'no self-intersections';
+}
+// Counting them is not enough — a fold two zoom levels away is invisible. This
+// walks the view to each one in turn so "there is a problem" and "here it is"
+// are the same click.
+let foldCursor=-1;
+function gotoNextFold(){
+  const all=[...IX.L.map(h=>h.point),...IX.R.map(h=>h.point)];
+  if(!all.length)return;
+  foldCursor=(foldCursor+1)%all.length;
+  const [px,py]=all[foldCursor];
+  s=Math.max(s,6); ox=cv.clientWidth/2-px*s; oy=cv.clientHeight/2-py*s;
+  draw();
 }
 
 // ---------- hit testing ----------
@@ -244,8 +288,7 @@ function loadFile(f){ const im=new Image(); im.onload=()=>{setImage(im);URL.revo
   im.src=URL.createObjectURL(f); }
 
 // ---------- interaction ----------
-let down=null, moved=false, drag=null, ctxTarget=null;
-function hideMenu(){ $('ctx').style.display='none'; ctxTarget=null; }
+let down=null, moved=false, drag=null;
 function nearestVertexAny(sx,sy,rad){       // search both visible layers
   let best=null;
   ['L','R'].forEach(layer=>{ if(!show[layer])return;
@@ -255,7 +298,6 @@ function nearestVertexAny(sx,sy,rad){       // search both visible layers
 }
 cv.addEventListener('mousedown',e=>{
   if(e.button!==0)return;                   // only left button drags/pans
-  hideMenu();
   const hit=nearestVertex(e.offsetX,e.offsetY,active);
   if(hit){ drag={i:hit.i}; moved=false; return; }
   down={x:e.offsetX,y:e.offsetY,ox,oy}; moved=false;
@@ -263,6 +305,7 @@ cv.addEventListener('mousedown',e=>{
 cv.addEventListener('mousemove',e=>{
   if(drag){ const p=toImg(e.offsetX,e.offsetY);
     PX[active][drag.i]=p; pts[active][drag.i]=pxToLonLat(p[0],p[1]);
+    refold(active);                          // live, so dragging a fold out clears it
     moved=true; draw(); }
   else if(down){ const dx=e.offsetX-down.x,dy=e.offsetY-down.y;
     if(Math.abs(dx)+Math.abs(dy)>3)moved=true;
@@ -273,71 +316,76 @@ cv.addEventListener('mousemove',e=>{
   if(img){ const [px,py]=toImg(e.offsetX,e.offsetY); const [lo,la]=pxToLonLat(px,py);
     $('ll').textContent=la.toFixed(6)+', '+lo.toFixed(6); }
 });
-window.addEventListener('mouseup',e=>{
+// A plain click does nothing on purpose. Appending is what let an operator
+// extend an edge past its inherited index 0 and re-introduce the far-apart-
+// start-point failure that seeding exists to prevent (ADR-0003) — so the
+// guarantee holds through editing, not only at generation. Every edit below is
+// drag, insert-on-the-line, or delete.
+window.addEventListener('mouseup',()=>{
   if(drag){ if(moved)save(); drag=null; return; }
-  if(down&&!moved&&img){                        // a click
-    const [px,py]=toImg(down.x,down.y);
-    if(px>=0&&py>=0&&px<=imgW&&py<=imgH){
-      const ll=pxToLonLat(px,py);
-      if(e.shiftKey){                           // shift-click: insert between existing points
-        const seg=nearestSegment(down.x,down.y,active);
-        if(seg) pts[active].splice(seg.i+1,0,ll); else pts[active].push(ll);
-      } else {
-        pts[active].push(ll);                   // plain click: append to end (join to previous only)
-      }
-      reproject(active); save(); draw();
-    }
-  }
   down=null;
 });
+// Double-click a segment: a new vertex at its midpoint, exactly on the line, so
+// inserting never itself moves the boundary.
+cv.addEventListener('dblclick',e=>{ e.preventDefault(); if(!img)return;
+  const seg=nearestSegment(e.offsetX,e.offsetY,active);
+  if(!seg||seg.d>INSERT_GRAB)return;
+  const [px,py]=segmentMidpoint(PX[active],seg.i,$('tglClose').checked);
+  pts[active].splice(seg.i+1,0,pxToLonLat(px,py));
+  reproject(active); save(); hover={layer:active,i:seg.i+1}; draw();
+});
+// Right-click a vertex: delete it.
 cv.addEventListener('contextmenu',e=>{ e.preventDefault();
   const hit=nearestVertexAny(e.offsetX,e.offsetY,14);
-  if(!hit){ hideMenu(); return; }
-  if(hit.layer!==active)setActive(hit.layer);
-  ctxTarget={layer:hit.layer,i:hit.i}; hover=ctxTarget;
-  const m=$('ctx');
-  $('ctxHd').textContent=(hit.layer==='L'?'left':'right')+' point #'+hit.i;
-  m.style.left=Math.min(e.offsetX,cv.clientWidth-140)+'px';
-  m.style.top=Math.min(e.offsetY,cv.clientHeight-70)+'px';
-  m.style.display='block'; draw();
+  if(!hit)return;
+  pts[hit.layer].splice(hit.i,1);
+  reproject(hit.layer); save(); hover=null; draw();
 });
-$('ctxRemove').onclick=()=>{ if(ctxTarget){ pts[ctxTarget.layer].splice(ctxTarget.i,1);
-    reproject(ctxTarget.layer); save(); }
-  hover=null; hideMenu(); draw(); };
-cv.addEventListener('wheel',e=>{ e.preventDefault(); hideMenu(); if(!img)return;
+cv.addEventListener('wheel',e=>{ e.preventDefault(); if(!img)return;
   const [ipx,ipy]=toImg(e.offsetX,e.offsetY);
   s*=Math.exp(-e.deltaY*0.0015); s=Math.max(0.02,Math.min(40,s));
   ox=e.offsetX-ipx*s; oy=e.offsetY-ipy*s; draw();
 },{passive:false});
 
 // ---------- KML ----------
-function buildKML(name,arr,close){
-  const ll=arr.slice();
-  if(close&&ll.length>1)ll.push(ll[0]);
-  const coords=ll.map(([lo,la])=>`${lo},${la},0`).join(' ');
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>${name}</name>
-    <Placemark><name>${name}</name>
-      <LineString><tessellate>1</tessellate><altitudeMode>clampToGround</altitudeMode>
-        <coordinates>${coords}</coordinates>
-      </LineString>
-    </Placemark>
-  </Document>
-</kml>
-`;
+// The page never formats or parses a KML. `src/twinkly_mockup/kml.py` owns the
+// format, so there is one implementation of it, the export lands in `configs/`
+// where the solver expects it instead of in a downloads folder, and the
+// Bacinger attribution comment cannot be left out of a file by accident.
+//
+// Import reads back that same file. It is the only durable resume path — the
+// working store is localStorage, and a cleared cache would otherwise take hours
+// of dragging with it — so it must reproduce the exported vertices exactly,
+// which is what `tests/test_kml.py` pins.
+const EDGE_NAME={L:'left',R:'right'};
+async function exportEdge(key){
+  if(!CFG)return;
+  if(pts[key].length<2){ showError('nothing to export: the '+EDGE_NAME[key]+' edge has '
+    +pts[key].length+' vertices'); return; }
+  const folds=IX[key].length;
+  if(folds&&!confirm('The '+EDGE_NAME[key]+' edge still crosses itself in '+folds
+      +' place(s).\n\nExport anyway? The solver cannot tell a fold from a track edge.'))
+    return;
+  try{
+    const res=await api('/api/circuits/'+encodeURIComponent(CFG.name)+'/kml/'+EDGE_NAME[key],{
+      method:'POST',
+      body:JSON.stringify({coords:pts[key],closed:$('tglClose').checked}),
+    });
+    $('exphint').innerHTML='wrote <b>'+res.vertices+'</b> vertices to <code>'+res.path+'</code>';
+    clearError();
+  }catch(e){ showError('export failed: '+e.message); }
 }
-function download(fname,text){ const a=$('dl');
-  a.href=URL.createObjectURL(new Blob([text],{type:'application/vnd.google-earth.kml+xml'}));
-  a.download=fname; a.click(); URL.revokeObjectURL(a.href); }
-function importKML(text,key){
-  const m=text.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
-  if(!m){ alert('no <coordinates> in KML'); return; }
-  const arr=m[1].trim().split(/\s+/).map(t=>{const c=t.split(',').map(Number);return [c[0],c[1]];});
-  if(arr.length>1){ const a=arr[0],b=arr[arr.length-1];
-    if(a[0]===b[0]&&a[1]===b[1])arr.pop(); }
-  pts[key]=arr; reproject(key); save(); draw();
+async function importEdge(key){
+  if(!CFG)return;
+  if(pts[key].length&&!confirm('Replace the current '+EDGE_NAME[key]+' edge ('
+      +pts[key].length+' vertices) with the exported KML?')) return;
+  try{
+    const res=await api('/api/circuits/'+encodeURIComponent(CFG.name)+'/kml/'+EDGE_NAME[key]);
+    pts[key]=res.coords; reproject(key); save(); draw();
+    $('exphint').innerHTML='restored <b>'+res.coords.length+'</b> vertices from <code>'
+      +res.path+'</code>';
+    clearError();
+  }catch(e){ showError('import failed: '+e.message); }
 }
 
 // ---------- UI ----------
@@ -347,8 +395,9 @@ $('pickL').onclick=()=>setActive('L'); $('pickR').onclick=()=>setActive('R');
 $('tglCL').onchange=e=>{show.CL=e.target.checked;draw();};
 $('tglL').onchange=e=>{show.L=e.target.checked;draw();};
 $('tglR').onchange=e=>{show.R=e.target.checked;draw();};
-$('tglClose').onchange=draw;
-$('undo').onclick=()=>{ if(pts[active].length){pts[active].pop();reproject(active);save();draw();} };
+// Closing an edge adds the seam segment, which can fold like any other.
+$('tglClose').onchange=()=>{ refold('L'); refold('R'); draw(); };
+$('foldnext').onclick=gotoNextFold;
 $('fit').onclick=fit;
 $('clrL').onclick=()=>{ if(confirm('Clear left edge?')){pts.L=[];reproject('L');save();draw();} };
 $('clrR').onclick=()=>{ if(confirm('Clear right edge?')){pts.R=[];reproject('R');save();draw();} };
@@ -377,17 +426,18 @@ $('seed').onclick=async()=>{
     clearError();
   }catch(e){ showError('could not seed '+CFG.name+': '+e.message); }
 };
-$('expL').onclick=()=>download(CFG.name+'_left.kml',buildKML(CFG.name+'_left',pts.L,$('tglClose').checked));
-$('expR').onclick=()=>download(CFG.name+'_right.kml',buildKML(CFG.name+'_right',pts.R,$('tglClose').checked));
-$('impL').onchange=e=>{const f=e.target.files[0]; if(f)f.text().then(t=>importKML(t,'L'));};
-$('impR').onchange=e=>{const f=e.target.files[0]; if(f)f.text().then(t=>importKML(t,'R'));};
+$('expL').onclick=()=>exportEdge('L'); $('expR').onclick=()=>exportEdge('R');
+$('impL').onclick=()=>importEdge('L'); $('impR').onclick=()=>importEdge('R');
 $('file').onchange=e=>{ if(e.target.files[0])loadFile(e.target.files[0]); };
 const stage=$('stage');
 stage.addEventListener('dragover',e=>e.preventDefault());
 stage.addEventListener('drop',e=>{e.preventDefault(); const f=e.dataTransfer.files[0]; if(f)loadFile(f);});
-addEventListener('keydown',e=>{ if(e.key==='Escape'){hideMenu();return;} if(e.target.tagName==='INPUT')return; const k=e.key.toLowerCase();
-  if(k==='l')setActive('L'); else if(k==='r')setActive('R'); else if(k==='f')fit();
-  else if(k==='u'||(k==='z'&&(e.metaKey||e.ctrlKey))){ if(pts[active].length){pts[active].pop();save();draw();} } });
+addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT')return; const k=e.key.toLowerCase();
+  // No undo key. The old one popped the last vertex, which under drag-only
+  // editing undoes nothing an operator did — it just deletes a seed vertex at
+  // the far end of the lap from wherever they were working.
+  if(k==='l')setActive('L'); else if(k==='r')setActive('R');
+  else if(k==='f')fit(); else if(k==='x')gotoNextFold(); });
 addEventListener('resize',resize);
 
 // ---------- boot ----------
@@ -399,9 +449,12 @@ const LAST_KEY='tracer_last_circuit';
 function showError(msg){ const e=$('err'); e.textContent=msg; e.style.display='block'; }
 function clearError(){ $('err').style.display='none'; }
 
-async function api(path){
-  const res=await fetch(path,{cache:'no-store'});
+async function api(path,opts){
+  const res=await fetch(path,{cache:'no-store',...opts,
+    headers:{'Content-Type':'application/json',...(opts&&opts.headers)}});
   let body=null; try{ body=await res.json(); }catch(e){}
+  // The server puts its reason in `error`; surfacing the status code instead
+  // would turn "export one first" into "HTTP 404".
   if(!res.ok) throw new Error((body&&body.error)||(path+' → HTTP '+res.status));
   return body;
 }
@@ -413,7 +466,10 @@ function boot(cfg){
   img=null;                                   // the previous circuit's mosaic
   $('title').textContent='Track-limit tracer — '+cfg.title;
   $('subtitle').innerHTML='frame from <code>'+cfg.sidecar_path+'</code>';
-  $('exphint').innerHTML='exports <b>'+cfg.name+'_left.kml</b> / <b>'+cfg.name+'_right.kml</b> → move into <code>configs/</code>';
+  $('exphint').innerHTML='writes <code>configs/'+cfg.name+'_left.kml</code> / <code>'
+    +cfg.name+'_right.kml</code> · import reads them back, which is the only way to '
+    +'recover this edge if the browser store is cleared';
+  foldCursor=-1;
   $('nCL').textContent=CL_PX.length;
   $('hw').textContent=cfg.half_width_m+' m';
   $('attrib').textContent=cfg.attribution;

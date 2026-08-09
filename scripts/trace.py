@@ -18,11 +18,19 @@ Two reasons the app is served rather than opened off the filesystem:
 
 Routes:
 
-    GET /                            -> redirect to the tracer
-    GET /api/circuits                -> the manifest, as a list
-    GET /api/circuits/<name>         -> one resolved circuit, or 404
-    GET /api/circuits/<name>/seed    -> both edges, offset from the centerline
-    GET /<anything else>             -> static file from the repo root
+    GET  /                                -> redirect to the tracer
+    GET  /api/circuits                    -> the manifest, as a list
+    GET  /api/circuits/<name>             -> one resolved circuit, or 404
+    GET  /api/circuits/<name>/seed        -> both edges, offset from the centerline
+    GET  /api/circuits/<name>/kml/<edge>  -> re-import a previously exported edge
+    POST /api/circuits/<name>/kml/<edge>  -> write configs/<name>_<edge>.kml
+    GET  /<anything else>                 -> static file from the repo root
+
+Export writes into `configs/` next to the manifest rather than through the
+browser's download directory, because that is where the file has to end up and
+a step that consists of "now move this file" is a step that gets skipped. It is
+also the only way the export can be guaranteed to carry its attribution
+comment: the page never formats a KML.
 
 A circuit that is not in the manifest 404s with a message naming the manifest
 and the circuits that *are* in it. There is deliberately no fallback circuit:
@@ -52,6 +60,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from twinkly_mockup.centerline import read_linestring_lonlat  # noqa: E402
+from twinkly_mockup.kml import (  # noqa: E402
+    KmlError,
+    edge_filename,
+    read_track_limit_kml,
+    write_track_limit_kml,
+)
 from twinkly_mockup.mosaic import MosaicSidecar  # noqa: E402
 from twinkly_mockup.seed import drop_seam_vertex, seed_boundary  # noqa: E402
 
@@ -65,17 +79,26 @@ class ManifestError(RuntimeError):
     """The manifest, or a file it names, cannot back a circuit."""
 
 
+class NotFoundError(RuntimeError):
+    """The circuit is declared; the thing asked about it does not exist yet."""
+
+
 @dataclass(frozen=True)
 class Circuit:
     """One manifest entry. Paths are resolved against the manifest's directory."""
 
     name: str
     title: str
+    base: Path
     mosaic: Path
     sidecar: Path
     centerline: Path
     half_width_m: float
     attribution: str
+
+    def kml_path(self, edge: str) -> Path:
+        """Where this circuit's `edge` is exported to — beside the manifest."""
+        return self.base / edge_filename(self.name, edge)
 
 
 def load_manifest(manifest_path: Path = DEFAULT_MANIFEST) -> dict[str, Circuit]:
@@ -119,6 +142,7 @@ def load_manifest(manifest_path: Path = DEFAULT_MANIFEST) -> dict[str, Circuit]:
         circuits[name] = Circuit(
             name=name,
             title=str(entry["title"]),
+            base=base,
             mosaic=base / str(entry["mosaic"]),
             sidecar=base / str(entry["sidecar"]),
             centerline=base / str(entry["centerline"]),
@@ -202,6 +226,53 @@ def resolve_seed(circuit: Circuit) -> dict:
     }
 
 
+def read_edge(circuit: Circuit, edge: str) -> dict:
+    """Re-import one previously exported edge.
+
+    The tracer's working store is `localStorage`, so this is the only thing
+    standing between a cleared cache and hours of lost dragging. It reads the
+    file the export wrote, in `configs/`, rather than asking the operator to
+    find it again — a resume path with a file picker in it is one people put off
+    until after they have already lost the work.
+    """
+    path = circuit.kml_path(edge)
+    if not path.exists():
+        raise NotFoundError(
+            f"`{circuit.name}` has no exported {edge} edge at "
+            f"{_relative(path, REPO_ROOT)} — export one first"
+        )
+    coords, closed = read_track_limit_kml(path)
+    return {
+        "name": circuit.name,
+        "edge": edge,
+        "path": _relative(path, REPO_ROOT),
+        "closed": closed,
+        "coords": [list(c) for c in coords],
+    }
+
+
+def write_edge(circuit: Circuit, edge: str, body: dict) -> dict:
+    """Export one edge straight into `configs/`, attribution and all."""
+    coords = body.get("coords")
+    if not isinstance(coords, list):
+        raise KmlError("expected a `coords` array of [lon, lat] pairs")
+    path = write_track_limit_kml(
+        circuit.kml_path(edge),
+        coords,
+        circuit=circuit.name,
+        edge=edge,
+        attribution=circuit.attribution,
+        closed=bool(body.get("closed", True)),
+    )
+    return {
+        "name": circuit.name,
+        "edge": edge,
+        "path": _relative(path, REPO_ROOT),
+        "vertices": len(coords),
+        "closed": bool(body.get("closed", True)),
+    }
+
+
 def _relative(path: Path, repo_root: Path) -> str:
     try:
         return path.resolve().relative_to(repo_root.resolve()).as_posix()
@@ -238,6 +309,8 @@ class TracerHandler(SimpleHTTPRequestHandler):
                 self._with_circuit(parts[0], resolve_circuit)
             elif parts[1:] == ["seed"]:
                 self._with_circuit(parts[0], resolve_seed)
+            elif len(parts) == 3 and parts[1] == "kml":
+                self._with_circuit(parts[0], lambda c: read_edge(c, parts[2]))
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": f"no such endpoint: {route}"})
             return
@@ -262,6 +335,25 @@ class TracerHandler(SimpleHTTPRequestHandler):
                 ],
             },
         )
+
+    def do_POST(self) -> None:  # noqa: N802 - http.server's spelling
+        route = self.path.split("?", 1)[0].rstrip("/") or "/"
+        parts = route[len("/api/circuits/") :].split("/") if route.startswith(
+            "/api/circuits/"
+        ) else []
+        if len(parts) != 3 or parts[1] != "kml":
+            self._json(HTTPStatus.NOT_FOUND, {"error": f"nothing accepts POST at {route}"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, json.JSONDecodeError) as e:
+            self._json(HTTPStatus.BAD_REQUEST, {"error": f"unreadable request body: {e}"})
+            return
+        if not isinstance(body, dict):
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "expected a JSON object"})
+            return
+        self._with_circuit(parts[0], lambda c: write_edge(c, parts[2], body))
 
     def _with_circuit(self, name: str, build: Callable[[Circuit], dict]) -> None:
         """Look a circuit up, then answer with `build(circuit)`.
@@ -290,6 +382,12 @@ class TracerHandler(SimpleHTTPRequestHandler):
             return
         try:
             payload = build(circuit)
+        except NotFoundError as e:
+            self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+            return
+        except KmlError as e:
+            self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+            return
         except (ManifestError, ValueError) as e:
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
             return

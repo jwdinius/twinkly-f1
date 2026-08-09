@@ -346,6 +346,99 @@ def test_paths_above_the_repo_root_are_not_served(server: int) -> None:
     assert status == 404
 
 
+# ------------------------------------------------------------ the KML round trip
+
+
+@pytest.fixture()
+def sandbox(tmp_path: Path) -> Iterator[int]:
+    """A server over a throwaway `configs/`, so exports do not litter the repo.
+
+    Export writes a real file, which is the whole point of it — so the test has
+    to give it somewhere real to write.
+    """
+    manifest = tmp_path / "circuits.json"
+    entry = json.loads(MANIFEST.read_text())["circuits"][0]
+    manifest.write_text(json.dumps({"circuits": [entry]}))
+    for key in ("sidecar", "centerline"):
+        (tmp_path / entry[key]).write_text((CONFIGS / entry[key]).read_text())
+
+    srv = trace.make_server("127.0.0.1", 0, manifest_path=manifest)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield srv.server_address[1]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        thread.join(timeout=5)
+
+
+def post(port: int, path: str, payload: dict) -> tuple[int, dict]:
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        body = json.dumps(payload).encode()
+        conn.request("POST", path, body, {"Content-Type": "application/json"})
+        res = conn.getresponse()
+        return res.status, json.loads(res.read())
+    finally:
+        conn.close()
+
+
+def test_exporting_then_importing_returns_the_same_vertices(sandbox: int) -> None:
+    """The criterion this endpoint pair exists for: no drift across the round trip."""
+    status, _, body = get(sandbox, "/api/circuits/monaco/seed")
+    assert status == 200
+    seed = json.loads(body)
+
+    status, wrote = post(
+        sandbox, "/api/circuits/monaco/kml/left", {"coords": seed["left"], "closed": True}
+    )
+    assert status == 200, wrote
+    assert wrote["vertices"] == len(seed["left"])
+
+    status, _, body = get(sandbox, "/api/circuits/monaco/kml/left")
+    assert status == 200
+    assert json.loads(body)["coords"] == seed["left"]
+
+
+def test_the_export_lands_in_the_manifest_directory_with_its_attribution(
+    sandbox: int, tmp_path: Path
+) -> None:
+    coords = [[7.0, 43.0], [7.001, 43.0], [7.001, 43.001]]
+    status, wrote = post(sandbox, "/api/circuits/monaco/kml/right", {"coords": coords})
+    assert status == 200, wrote
+
+    written = tmp_path / "monaco_right.kml"
+    assert written.exists(), wrote
+    text = written.read_text()
+    assert "Tomislav Bacinger" in text and "MIT" in text
+    assert text.count("<LineString>") == 1
+
+
+def test_importing_before_anything_was_exported_says_so(sandbox: int) -> None:
+    status, _, body = get(sandbox, "/api/circuits/monaco/kml/left")
+    assert status == 404
+    assert "export one first" in json.loads(body)["error"]
+
+
+def test_an_edge_that_is_not_left_or_right_is_refused(sandbox: int) -> None:
+    status, body = post(sandbox, "/api/circuits/monaco/kml/middle", {"coords": [[7.0, 43.0]]})
+    assert status == 400
+    assert "edge must be one of" in body["error"]
+
+
+def test_a_post_with_no_coords_is_refused(sandbox: int) -> None:
+    status, body = post(sandbox, "/api/circuits/monaco/kml/left", {"closed": True})
+    assert status == 400
+    assert "coords" in body["error"]
+
+
+def test_nothing_else_accepts_post(sandbox: int) -> None:
+    status, body = post(sandbox, "/api/circuits/monaco/seed", {})
+    assert status == 404
+    assert "POST" in body["error"]
+
+
 # ---------------------------------------------------------- the page's own copy
 
 
@@ -362,3 +455,18 @@ def test_the_page_carries_no_circuit_of_its_own() -> None:
     assert "43.736871113" not in html, "Monaco's sidecar origin is back in the page"
     assert "falling back to Monaco" not in html
     assert "/api/circuits" in html
+
+
+def test_the_page_has_no_way_to_append_a_vertex() -> None:
+    """Append is what let an edge grow past its inherited index 0 (ADR-0003).
+
+    Seeding only guarantees a shared start point if editing cannot undo the
+    guarantee afterwards, so the append path has to be *absent*, not merely
+    unadvertised — and its return would look like a convenience, not a bug.
+    """
+    html = TRACER_HTML.read_text()
+    assert "pts[active].push" not in html, "the append path is back in the page"
+    assert "shiftKey" not in html, "shift-click insert is back in the page"
+    # The old undo popped the last vertex, which under drag-only editing deletes
+    # a seed vertex nowhere near whatever the operator was doing.
+    assert "pts[active].pop" not in html
