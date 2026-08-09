@@ -45,6 +45,12 @@
   #ctx button { display:block; width:100%; text-align:left; border:0; background:transparent;
                 padding:6px 10px; border-radius:4px; }
   #ctx button:hover { background:#3a2330; color:#ff8a8a; }
+  #err { position:absolute; z-index:6; left:12px; right:12px; top:12px; display:none;
+         background:#3a1f28; border:1px solid #7d3b4c; border-radius:6px; padding:10px 12px;
+         color:#ffb3b3; font-size:12px; white-space:pre-wrap; }
+  select { width:100%; background:#2a2e3a; color:var(--ink); border:1px solid #3a3f4d;
+           border-radius:6px; padding:7px 9px; font:inherit; }
+  .attrib { color:var(--muted); font-size:10px; line-height:1.35; margin-top:8px; }
 </style>
 </head>
 <body>
@@ -57,10 +63,16 @@
       <div id="dropHint" style="font-size:11px"></div>
     </div>
     <div id="ctx"><div class="hd" id="ctxHd">point</div><button id="ctxRemove">Remove point</button></div>
+    <div id="err"></div>
   </div>
   <div id="panel">
     <h1 id="title">Track-limit tracer</h1>
-    <p class="sub" id="subtitle"></p>
+    <p class="sub" id="subtitle">loading the circuit manifest…</p>
+
+    <div class="grp">
+      <div class="stat">Circuit</div>
+      <select id="circuit"></select>
+    </div>
 
     <div class="grp">
       <div class="stat">Active edge</div>
@@ -81,7 +93,6 @@
     <div class="grp">
       <div class="seg"><button id="undo">Undo point</button><button id="fit">Fit view</button></div>
       <div class="seg"><button id="clrL">Clear left</button><button id="clrR">Clear right</button></div>
-      <div class="seg"><button id="resetAuto" style="display:none">Reset to auto extraction</button></div>
     </div>
 
     <div class="grp">
@@ -96,7 +107,9 @@
     <div class="grp stat">
       <div>left points: <b id="nL">0</b> · right points: <b id="nR">0</b></div>
       <div>zoom: <b id="zoom">–</b> · cursor: <b id="ll">–</b></div>
+      <div>centerline: <b id="nCL">–</b> vertices · half-width <b id="hw">–</b></div>
       <div style="margin-top:8px">autosaves per circuit · <kbd>L</kbd>/<kbd>R</kbd> edge · <kbd>U</kbd> undo · <kbd>F</kbd> fit</div>
+      <div class="attrib" id="attrib"></div>
     </div>
   </div>
 </div>
@@ -105,26 +118,14 @@
 <script type="module">
 // The frame transform lives in scripts/tracer/frame.js because Python owns the
 // authoritative implementation and a golden fixture binds the two (ADR-0004);
-// see tests/js/frame.test.js. Being an ES module, this page must be *served* —
-// `python3 -m http.server` from the repo root will do until scripts/trace.py
-// lands. Opening it straight off the filesystem will not load the import.
+// see tests/js/frame.test.js. Being an ES module, this page must be *served*,
+// which is what scripts/trace.py is for. Opening it straight off the filesystem
+// will not load the import — and the manifest API below would 404 anyway.
 import {
   createFrame,
   lonLatToPx as frameLonLatToPx,
   pxToLonLat as framePxToLonLat,
 } from './tracer/frame.js';
-
-// ---------- default circuit (Monaco), used when no ?circuit= is given ----------
-const MONACO_CL = [[7.427191,43.739404],[7.427171,43.739494],[7.427199,43.739575],[7.427271,43.739686],[7.427339,43.739764],[7.427551,43.739958],[7.428628,43.741015],[7.428703,43.741091],[7.428814,43.741114],[7.428949,43.741086],[7.429043,43.74103],[7.429111,43.740942],[7.429125,43.740843],[7.429128,43.740761],[7.429139,43.740694],[7.429195,43.740614],[7.42926,43.740553],[7.429381,43.74043],[7.429463,43.740321],[7.429495,43.740255],[7.429536,43.740216],[7.429601,43.740203],[7.429676,43.740219],[7.429732,43.740261],[7.429749,43.740321],[7.429712,43.740372],[7.429617,43.740422],[7.429336,43.74068],[7.429296,43.740742],[7.429295,43.740802],[7.429317,43.740848],[7.429347,43.740891],[7.429479,43.74094],[7.429683,43.740978],[7.429794,43.741008],[7.429908,43.741041],[7.430066,43.741081],[7.430238,43.74109],[7.430329,43.741057],[7.430363,43.740955],[7.430331,43.740359],[7.430204,43.739746],[7.430072,43.739356],[7.429925,43.739078],[7.429673,43.73876],[7.429383,43.738491],[7.428963,43.73816],[7.428362,43.737894],[7.428004,43.737767],[7.427314,43.737534],[7.42685,43.737418],[7.426165,43.737301],[7.425724,43.737251],[7.42549,43.737219],[7.42545,43.73717],[7.425447,43.737127],[7.425433,43.737077],[7.425403,43.737028],[7.425304,43.737003],[7.425164,43.736986],[7.425009,43.73705],[7.424924,43.737054],[7.42369,43.736937],[7.423077,43.736873],[7.422513,43.736809],[7.422357,43.736792],[7.422253,43.736779],[7.422178,43.736723],[7.42206,43.736555],[7.42196,43.736392],[7.42188,43.736229],[7.421845,43.736113],[7.421808,43.735911],[7.421805,43.735565],[7.42181,43.735479],[7.421845,43.73542],[7.421915,43.735363],[7.42207,43.735281],[7.422174,43.735212],[7.422219,43.735138],[7.422237,43.735031],[7.422413,43.734295],[7.422458,43.734166],[7.422472,43.734125],[7.422468,43.73407],[7.422423,43.734026],[7.422324,43.733976],[7.422225,43.733941],[7.422202,43.733891],[7.422221,43.733786],[7.422334,43.733547],[7.422437,43.733367],[7.422542,43.733225],[7.422722,43.733039],[7.422948,43.732874],[7.423114,43.732805],[7.4233,43.732742],[7.423393,43.732712],[7.42344,43.732674],[7.423494,43.732557],[7.423468,43.732495],[7.423384,43.732459],[7.423011,43.732388],[7.422803,43.732364],[7.422666,43.732362],[7.422544,43.732375],[7.422467,43.732417],[7.42242,43.732452],[7.422418,43.732534],[7.4224,43.7326],[7.422364,43.732681],[7.422154,43.732868],[7.422,43.733047],[7.42188,43.733181],[7.421753,43.733435],[7.421472,43.734142],[7.421395,43.73437],[7.421341,43.734614],[7.421271,43.73497],[7.421216,43.735433],[7.421216,43.735735],[7.421234,43.735966],[7.421269,43.736206],[7.421331,43.736373],[7.421401,43.736523],[7.421435,43.736615],[7.421452,43.736696],[7.421444,43.736819],[7.421441,43.736895],[7.421475,43.73694],[7.421562,43.73697],[7.421774,43.737007],[7.421963,43.737013],[7.422222,43.737036],[7.422583,43.737069],[7.422903,43.73711],[7.423717,43.737283],[7.424172,43.737373],[7.424589,43.737422],[7.424875,43.737439],[7.425098,43.737497],[7.425743,43.737718],[7.426026,43.737802],[7.426439,43.737869],[7.426784,43.737904],[7.427113,43.737944],[7.427298,43.737991],[7.427523,43.738093],[7.427718,43.73824],[7.427828,43.738364],[7.427877,43.738494],[7.427869,43.73863],[7.427837,43.738758],[7.427767,43.738899],[7.427674,43.739033],[7.427528,43.739115],[7.427388,43.73921],[7.42732,43.739253],[7.427257,43.739299],[7.427191,43.739404]];
-// Sidecar values are copied verbatim from configs/monaco_mosaic.yaml, which is
-// itself emitted from the raster's geotransform. This literal goes away with the
-// circuits.json manifest.
-const MONACO = { name:'monaco', image:'monaco_mosaic.png',
-  sidecar:{ origin_lat:43.736871113, origin_lon:7.423323737,
-            origin_px:[2612.5,2604.0], m_per_px:0.215660367,
-            north_angle_deg:-1.090176381, utm_epsg:32632,
-            grid_scale:0.999798282 },
-  centerline:MONACO_CL, left:[], right:[] };
 
 // ---------- geo frame (set on boot) ----------
 // Grid-aware: the raster is UTM, so its pixel axes are grid east/north and the
@@ -207,8 +208,19 @@ function nearestSegment(sx,sy,layer){         // returns {i,d} where insert goes
 // ---------- image loading ----------
 function setImage(im){ img=im; imgW=im.naturalWidth; imgH=im.naturalHeight;
   $('drop').classList.add('hide'); fit(); }
-function autoLoad(){ const im=new Image(); im.onload=()=>setImage(im); im.onerror=()=>{};
-  im.src='../configs/'+CFG.image; }
+// The mosaic PNG is gitignored build output, so its absence is an ordinary
+// state, not a crash: fall back to the drop target and name the build script.
+function autoLoad(){
+  if(!CFG.mosaic_present){
+    $('drop').classList.remove('hide');
+    $('dropHint').innerHTML='<code>'+CFG.mosaic_url+'</code> is not built — run <code>'+CFG.mosaic_hint+'</code>, or drop a PNG here';
+    return;
+  }
+  const im=new Image();
+  im.onload=()=>setImage(im);
+  im.onerror=()=>showError('the server did not return '+CFG.mosaic_url);
+  im.src=CFG.mosaic_url;
+}
 function loadFile(f){ const im=new Image(); im.onload=()=>{setImage(im);URL.revokeObjectURL(im.src);};
   im.src=URL.createObjectURL(f); }
 
@@ -318,8 +330,6 @@ $('undo').onclick=()=>{ if(pts[active].length){pts[active].pop();save();draw();}
 $('fit').onclick=fit;
 $('clrL').onclick=()=>{ if(confirm('Clear left edge?')){pts.L=[];save();draw();} };
 $('clrR').onclick=()=>{ if(confirm('Clear right edge?')){pts.R=[];save();draw();} };
-$('resetAuto').onclick=()=>{ if(confirm('Discard edits and reload the auto extraction?')){
-  pts={L:toPx(CFG.left),R:toPx(CFG.right)}; save(); draw(); } };
 $('expL').onclick=()=>download(CFG.name+'_left.kml',buildKML(CFG.name+'_left',pts.L,$('tglClose').checked));
 $('expR').onclick=()=>download(CFG.name+'_right.kml',buildKML(CFG.name+'_right',pts.R,$('tglClose').checked));
 $('impL').onchange=e=>{const f=e.target.files[0]; if(f)f.text().then(t=>importKML(t,'L'));};
@@ -334,28 +344,76 @@ addEventListener('keydown',e=>{ if(e.key==='Escape'){hideMenu();return;} if(e.ta
 addEventListener('resize',resize);
 
 // ---------- boot ----------
+// Everything the page needs comes from the manifest API in scripts/trace.py:
+// the mosaic URL, the sidecar the frame is built from, and the centerline in
+// lon/lat. Nothing about a circuit is written down here, so adding one is an
+// edit to configs/circuits.json and nothing else (ADR-0003).
+const LAST_KEY='tracer_last_circuit';
+function showError(msg){ const e=$('err'); e.textContent=msg; e.style.display='block'; }
+function clearError(){ $('err').style.display='none'; }
+
+async function api(path){
+  const res=await fetch(path,{cache:'no-store'});
+  let body=null; try{ body=await res.json(); }catch(e){}
+  if(!res.ok) throw new Error((body&&body.error)||(path+' → HTTP '+res.status));
+  return body;
+}
+
 function boot(cfg){
+  clearError();
   CFG=cfg; setFrame(cfg.sidecar);
   CL_PX=toPx(cfg.centerline||[]);
-  $('title').textContent='Track-limit tracer — '+cfg.name;
-  $('subtitle').innerHTML='frame from <code>'+cfg.name+'_mosaic.yaml</code>';
-  $('dropHint').innerHTML='auto-loads <code>../configs/'+cfg.image+'</code>';
+  img=null;                                   // the previous circuit's mosaic
+  $('title').textContent='Track-limit tracer — '+cfg.title;
+  $('subtitle').innerHTML='frame from <code>'+cfg.sidecar_path+'</code>';
   $('exphint').innerHTML='exports <b>'+cfg.name+'_left.kml</b> / <b>'+cfg.name+'_right.kml</b> → move into <code>configs/</code>';
-  const hasAuto=(cfg.left&&cfg.left.length)||(cfg.right&&cfg.right.length);
-  $('resetAuto').style.display=hasAuto?'':'none';
+  $('nCL').textContent=CL_PX.length;
+  $('hw').textContent=cfg.half_width_m+' m';
+  $('attrib').textContent=cfg.attribution;
   let saved=null; try{ saved=JSON.parse(localStorage.getItem(LSKEY())); }catch(e){}
-  if(saved&&saved.L&&(saved.L.length||saved.R.length)) pts=saved;
-  else pts={L:toPx(cfg.left||[]),R:toPx(cfg.right||[])};
+  pts=(saved&&saved.L&&(saved.L.length||saved.R.length))?saved:{L:[],R:[]};
   resize(); autoLoad();
 }
-const circuit=new URLSearchParams(location.search).get('circuit');
-if(circuit){
-  const sc=document.createElement('script');
-  sc.src='../configs/'+circuit+'_tracer_data.js';
-  sc.onload=()=>boot(window.TRACER);
-  sc.onerror=()=>{ alert('could not load ../configs/'+circuit+'_tracer_data.js — falling back to Monaco'); boot(MONACO); };
-  document.head.appendChild(sc);
-} else boot(MONACO);
+
+async function selectCircuit(name){
+  try{
+    boot(await api('/api/circuits/'+encodeURIComponent(name)));
+    try{ localStorage.setItem(LAST_KEY,name); }catch(e){}
+    $('circuit').value=name;
+  }catch(e){
+    // No fallback circuit on purpose: booting a *different* circuit than the
+    // one asked for is worse than booting none. Pick another from the list.
+    showError(e.message);
+    $('subtitle').textContent='no circuit loaded';
+    $('circuit').value='';        // …and don't let the picker claim otherwise
+  }
+}
+
+(async function start(){
+  let manifest;
+  try{ manifest=await api('/api/circuits'); }
+  catch(e){
+    showError('could not read the circuit manifest — is this page being served by '+
+              '`uv run scripts/trace.py`?\n\n'+e.message);
+    $('subtitle').textContent='no manifest';
+    return;
+  }
+  const sel=$('circuit');
+  sel.innerHTML='';
+  // A blank first option so a failed boot can show "nothing selected" rather
+  // than the name of a circuit that is not on screen.
+  const blank=document.createElement('option');
+  blank.value=''; blank.textContent='—'; sel.appendChild(blank);
+  manifest.circuits.forEach(c=>{
+    const o=document.createElement('option');
+    o.value=c.name; o.textContent=c.title+' ('+c.name+')'; sel.appendChild(o);
+  });
+  sel.onchange=e=>{ if(e.target.value) selectCircuit(e.target.value); };
+  let want=null; try{ want=localStorage.getItem(LAST_KEY); }catch(e){}
+  // A remembered circuit that has since left the manifest takes the error path
+  // rather than quietly loading its neighbour.
+  await selectCircuit(want||manifest.circuits[0].name);
+})();
 </script>
 </body>
 </html>

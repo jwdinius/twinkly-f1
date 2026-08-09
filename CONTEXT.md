@@ -8,9 +8,17 @@ one of these concepts, use the term exactly as defined here.
 
 ### Centerline
 A single `LineString` of lat/lon vertices running down the *middle* of the
-circuit. Source: bacinger/f1-circuits (`configs/monaco_centerline.geojson`).
-Used to derive snapshot poses (nearest-vertex position + tangent yaw). It is
+circuit. Source: bacinger/f1-circuits, one file per circuit under `configs/`,
+bound to that circuit by the Circuit manifest. Used to derive snapshot poses
+(nearest-vertex position + tangent yaw) and to seed the Track-limit KML. It is
 **not** a track limit and is **not** the racing line.
+
+### Circuit manifest
+The single declaration of a circuit: `configs/circuits.json` binds a name to
+its Mosaic, its Sidecar, its Centerline, and the constant half-width the traced
+edges start out offset by. Adding a circuit means adding an entry — a circuit
+is described nowhere else, and one that is absent from the manifest is not
+traceable.
 
 ### Track-limit KML
 A pair of lat/lon `LineString`s — one **left** edge, one **right** edge —

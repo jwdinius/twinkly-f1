@@ -75,10 +75,7 @@ class Centerline:
     ) -> "Centerline":
         """Load a single `LineString` feature and project to ENU around the origin."""
         geojson_path = Path(geojson_path)
-        with geojson_path.open("r") as f:
-            raw = json.load(f)
-
-        coords = _extract_linestring_coords(raw, geojson_path)
+        coords = read_linestring_lonlat(geojson_path)
         lons = np.asarray([c[0] for c in coords], dtype=np.float64)
         lats = np.asarray([c[1] for c in coords], dtype=np.float64)
 
@@ -149,6 +146,19 @@ class Centerline:
         """Snap a query lat/lon (using the same origin as load) to the nearest vertex."""
         x_m, y_m = FlatEnu.at(origin_lat, origin_lon).to_enu(lat, lon)
         return self.snap(float(x_m), float(y_m))
+
+
+def read_linestring_lonlat(geojson_path: Path) -> list[tuple[float, float]]:
+    """Read a centerline GeoJSON into `[(lon, lat), ...]`, unprojected.
+
+    The tracer needs the same vertices this module projects, but in lon/lat and
+    without an ENU origin — it has its own frame (ADR-0004). Both callers share
+    one reader so a GeoJSON this package accepts is one the tracer can boot from.
+    """
+    geojson_path = Path(geojson_path)
+    with geojson_path.open("r") as f:
+        raw = json.load(f)
+    return _extract_linestring_coords(raw, geojson_path)
 
 
 def _extract_linestring_coords(raw: dict, path: Path) -> list[tuple[float, float]]:

@@ -42,6 +42,18 @@ optimal trajectory computed by [`fastest-lap`](submodules/fastest-lap):
    centerline and then refined by dragging, which is what keeps the two edges
    in the same direction and from the same start point. See
    **[ADR-0003](docs/adr/0003-centerline-seeded-track-limits.md)**.
+
+   ```
+   uv run scripts/trace.py          # serves the tracer, opens a browser
+   ```
+
+   The tracer must be served — it is an ES module and it reads its circuits
+   from an API, so opening the HTML off the filesystem gets you a blank page.
+   Circuits come from [`configs/circuits.json`](configs/circuits.json), which
+   binds each mosaic to its sidecar, its centerline, and a starting half-width;
+   **adding a circuit is an entry in that file and nothing else**. The mosaic
+   PNGs are gitignored build output — if one is missing, the tracer says so and
+   names the build script.
 3. **Optimal trajectory** — `fastest-lap` runs in its Docker container against
    the traced circuit and emits the minimum-lap-time line, which
    `twinkly-mockup import-lap` converts into the renderer's trajectory CSV.
