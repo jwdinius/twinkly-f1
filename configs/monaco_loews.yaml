@@ -12,8 +12,8 @@ layout_config: layout_standard.yaml
 
 snapshot:
   mosaic: monaco_mosaic.yaml
-  x_m: 517.618
-  y_m: 383.307
+  x_m: 296.300
+  y_m: 383.291
   yaw_rad: -3.011686
 
 car:

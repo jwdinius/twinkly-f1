@@ -148,6 +148,65 @@ class Centerline:
         return self.snap(float(x_m), float(y_m))
 
 
+@dataclass(frozen=True)
+class LonLatBBox:
+    """A south-west / north-east lat/lon box, in degrees."""
+
+    south: float
+    west: float
+    north: float
+    east: float
+
+    def sw(self) -> str:
+        """`lat,lon` for the south-west corner, as racetrack-mosaic's `--sw`."""
+        return f"{self.south:.6f},{self.west:.6f}"
+
+    def ne(self) -> str:
+        """`lat,lon` for the north-east corner, as racetrack-mosaic's `--ne`."""
+        return f"{self.north:.6f},{self.east:.6f}"
+
+
+def centerline_bbox(
+    geojson_path: Path,
+    *,
+    margin_m: float,
+) -> LonLatBBox:
+    """The tight lat/lon box around a centerline, grown by `margin_m` on all sides.
+
+    This is what a mosaic download region should be: every centerline vertex
+    inside it, plus enough apron for the track limits, run-off and the car's
+    footprint — and no imagery beyond that, which is only tiles fetched and
+    warped for nothing.
+
+    Metres become degrees through the flat-ENU scales (`FlatEnu`), the same
+    projection the centerline itself is loaded with. The east–west padding uses
+    the scale at whichever edge is furthest from the equator, where a degree of
+    longitude is shortest, so the margin is *at least* `margin_m` along every
+    edge rather than exactly `margin_m` at the box centre.
+    """
+    if margin_m < 0:
+        raise ValueError(f"margin_m must be non-negative, got {margin_m}")
+
+    coords = read_linestring_lonlat(Path(geojson_path))
+    lons = [c[0] for c in coords]
+    lats = [c[1] for c in coords]
+    south, north = min(lats), max(lats)
+    west, east = min(lons), max(lons)
+
+    worst_lat = max((south, north), key=abs)
+    east_frame = FlatEnu.at(worst_lat, west)
+    north_frame = FlatEnu.at(0.5 * (south + north), west)
+    d_lon = math.degrees(margin_m / east_frame.m_per_rad_east)
+    d_lat = math.degrees(margin_m / north_frame.m_per_rad_north)
+
+    return LonLatBBox(
+        south=south - d_lat,
+        west=west - d_lon,
+        north=north + d_lat,
+        east=east + d_lon,
+    )
+
+
 def read_linestring_lonlat(geojson_path: Path) -> list[tuple[float, float]]:
     """Read a centerline GeoJSON into `[(lon, lat), ...]`, unprojected.
 

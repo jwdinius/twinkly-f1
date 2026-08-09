@@ -44,14 +44,14 @@ emit = _emitter()
 
 # The Monaco build's actual UTM 32N geotransform, as `gdalinfo -json` reports it.
 MONACO_INFO = {
-    "size": [5225, 5208],
+    "size": [4724, 5711],
     "geoTransform": [
-        372469.9190824936,
-        0.2156603669216663,
+        372745.36659342493,
+        0.2155795909077048,
         0.0,
-        4844417.854036934,
+        4844467.671905782,
         0.0,
-        -0.2156603669216663,
+        -0.2155795909077048,
     ],
     "stac": {"proj:epsg": 32632},
 }
@@ -84,7 +84,7 @@ def test_emitted_yaml_round_trips_through_the_schema() -> None:
     sidecar = MosaicSidecar.model_validate(yaml.safe_load(text))
     assert sidecar.path == Path("monaco_mosaic.png")
     assert sidecar.utm_epsg == 32632
-    assert sidecar.origin_px == (2612.5, 2604.0)
+    assert sidecar.origin_px == (2362.0, 2855.5)
     assert "do not hand-edit" in text
 
 

@@ -191,11 +191,30 @@ function draw(){
   const w=cv.clientWidth,h=cv.clientHeight;
   ctx.clearRect(0,0,w,h); ctx.fillStyle='#0b0d12'; ctx.fillRect(0,0,w,h);
   if(img){ ctx.imageSmoothingEnabled=s<2; ctx.drawImage(img,ox,oy,imgW*s,imgH*s); }
-  if(show.CL&&CL_PX.length){ ctx.strokeStyle='rgba(255,214,10,.9)'; ctx.lineWidth=1.5;
-    ctx.setLineDash([6,5]); polyline(CL_PX,true); ctx.setLineDash([]); }
+  drawCenterline();
   drawEdge('R','right'); drawEdge('L','left');
   drawFolds('R'); drawFolds('L');
   hud();
+}
+// A vertex has to be findable against satellite imagery, which is bright,
+// noisy, and every colour at once. So every marker is a filled disc ringed in
+// near-black: the ring is what separates a red dot from red-brown asphalt, and
+// it costs one extra stroke per vertex.
+function dot(x,y,r,fill,ring){
+  ctx.beginPath(); ctx.arc(x,y,r,0,7);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  ctx.strokeStyle=ring||'rgba(6,8,12,.85)'; ctx.lineWidth=1.4; ctx.stroke();
+}
+// Solid, with a circle on every vertex. Both are load-bearing: the seed puts
+// exactly one edge vertex on each centerline vertex, so the circles show which
+// centerline vertex a given edge point came from — and dashes made a sparse
+// straight look like a vertex-less one, which is the opposite of the truth.
+function drawCenterline(){
+  if(!show.CL||!CL_PX.length)return;
+  const col=getComputedStyle(document.documentElement).getPropertyValue('--cl').trim();
+  ctx.strokeStyle='rgba(6,8,12,.55)'; ctx.lineWidth=3.4; polyline(CL_PX,true);
+  ctx.strokeStyle=col; ctx.lineWidth=1.6; polyline(CL_PX,true);
+  CL_PX.forEach(p=>{ const [x,y]=toScreen(p[0],p[1]); dot(x,y,2.6,col); });
 }
 // Where an edge crosses itself, marked but never repaired: which way to
 // un-fold a corner is the operator's call, and an automatic answer would be a
@@ -218,13 +237,22 @@ function drawFolds(key){
 function drawEdge(key,cssvar){
   if(!show[key])return; const arr=PX[key]; if(!arr.length)return;
   const color=getComputedStyle(document.documentElement).getPropertyValue('--'+cssvar).trim();
+  const closed=$('tglClose').checked;
+  ctx.strokeStyle='rgba(6,8,12,.55)'; ctx.lineWidth=(key===active?2.2:1.6)+2;
+  polyline(arr,closed);
   ctx.strokeStyle=color; ctx.lineWidth=key===active?2.2:1.6;
-  polyline(arr, $('tglClose').checked);
-  ctx.fillStyle=color; const rad=key===active?2.8:2.0;
+  polyline(arr,closed);
+  // The inactive edge stays a step smaller so the two never read as one layer,
+  // but not so small it disappears — you still have to see where it sits while
+  // dragging the other one onto its line.
+  const rad=key===active?4.2:3.2;
   arr.forEach((p,i)=>{ const [x,y]=toScreen(p[0],p[1]);
     const big=(hover&&hover.layer===key&&hover.i===i);
-    ctx.beginPath(); ctx.arc(x,y, big?rad+3:(i===0?rad+1.4:rad),0,7); ctx.fill();
-    if(big){ ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(x,y,rad+5,0,7); ctx.stroke(); ctx.strokeStyle=color; }
+    dot(x,y, big?rad+2.5:(i===0?rad+1.6:rad), color);
+    // Index 0 is the vertex both edges inherited from the centerline; a white
+    // ring keeps it identifiable, because "do the edges still start together"
+    // is a question worth being able to answer by looking.
+    if(i===0||big) dot(x,y,(big?rad+2.5:rad+1.6)+3, null, '#fff');
   });
 }
 function hud(){

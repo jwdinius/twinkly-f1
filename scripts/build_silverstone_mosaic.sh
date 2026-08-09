@@ -7,9 +7,19 @@ cd "$(dirname "$0")/.."
 REPO_ROOT="$PWD"
 SCRATCH="${SCRATCH:-/tmp/silverstone_mosaic}"
 mkdir -p "$SCRATCH"
+
+# The download bbox is the centerline's extent plus MARGIN_M metres of apron,
+# derived rather than hand-typed so it cannot drift from the GeoJSON.
+MARGIN_M="${MARGIN_M:-100}"
+CENTERLINE="configs/silverstone_centerline.geojson"
+eval "$(uv run scripts/centerline_bbox.py "$CENTERLINE" \
+    --margin-m "$MARGIN_M" --format shell)"
+BBOX="$SW -> $NE"
+echo "bbox from $CENTERLINE + ${MARGIN_M} m: $BBOX"
+
 ( cd "$SCRATCH" && uv run "$REPO_ROOT/submodules/racetrack-mosaic/racetrack_mosaic.py" \
-    --sw 52.063513,-1.024286 \
-    --ne 52.078936,-1.009264 \
+    --sw "$SW" \
+    --ne "$NE" \
     --gsd 25 --name silverstone --yes --quiet )
 gdalwarp -t_srs EPSG:32630 -r bilinear -overwrite -of GTiff \
     "$SCRATCH/silverstone/silverstone.tif" "$SCRATCH/silverstone/silverstone_utm.tif"
@@ -23,4 +33,4 @@ uv run scripts/emit_mosaic_sidecar.py "$SCRATCH/silverstone/silverstone_utm.tif"
     --png silverstone_mosaic.png \
     --out configs/silverstone_mosaic.yaml \
     --title "Silverstone GP circuit — top-down satellite mosaic." \
-    --note "Built by scripts/build_silverstone_mosaic.sh: submodules/racetrack-mosaic fetches Google Satellite tiles for bbox 52.063513,-1.024286 -> 52.078936,-1.009264 at a requested GSD of 25 cm/px, then gdalwarp reprojects to UTM Zone 30N for isotropic metres per pixel."
+    --note "Built by scripts/build_silverstone_mosaic.sh: submodules/racetrack-mosaic fetches Google Satellite tiles for bbox $BBOX — $CENTERLINE's extent plus ${MARGIN_M} m on every side, derived by scripts/centerline_bbox.py — at a requested GSD of 25 cm/px, then gdalwarp reprojects to UTM Zone 30N for isotropic metres per pixel."

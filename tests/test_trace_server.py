@@ -452,7 +452,10 @@ def test_the_page_carries_no_circuit_of_its_own() -> None:
     html = TRACER_HTML.read_text()
     assert "_tracer_data.js" not in html
     assert "43.739404" not in html, "a Monaco centerline vertex is back in the page"
-    assert "43.736871113" not in html, "Monaco's sidecar origin is back in the page"
+    monaco_origin = yaml.safe_load((CONFIGS / "monaco_mosaic.yaml").read_text())
+    assert (
+        f"{monaco_origin['origin_lat']:.6f}" not in html
+    ), "Monaco's sidecar origin is back in the page"
     assert "falling back to Monaco" not in html
     assert "/api/circuits" in html
 

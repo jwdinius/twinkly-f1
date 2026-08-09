@@ -373,13 +373,16 @@ def test_sample_applies_grid_scale() -> None:
 
 # --- the shipped snapshot, pinned against the re-registered frame ------------
 
-# Recaptured twice in quick succession: once when the Monaco sidecar was
-# re-emitted from the UTM geotransform (#16), and again when flat-ENU moved off
-# a sphere of radius `a` onto the radii of curvature (#23). Both legitimately
-# move the Massenet crop. The digest is the pin that a *later* change does not
-# move it again unnoticed.
+# Recaptured three times: when the Monaco sidecar was re-emitted from the UTM
+# geotransform (#16), when flat-ENU moved off a sphere of radius `a` onto the
+# radii of curvature (#23), and when the download bbox became the centerline's
+# extent plus 100 m — which moves the raster centre, hence the ENU origin, hence
+# every resampling phase. All three legitimately move the Massenet crop; that
+# last one does *not* move the ground it shows, which is pinned independently by
+# the corner lat/lons in tests/test_centerline.py. The digest is the pin that a
+# later change does not move it again unnoticed.
 MONACO_MASSENET_SAMPLE_SHA256 = (
-    "446c1406b8496a986f88d9e29fac02cbe3be9162051b83fcb825973e89d6658e"
+    "b9585b2ca11db65bf06f157221181292ae27f4218ef90cdbb10c614e8ed3ee3c"
 )
 
 
