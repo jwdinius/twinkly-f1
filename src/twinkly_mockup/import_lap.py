@@ -8,18 +8,28 @@ solver only emits files. Two transforms live here:
    local-Cartesian frame, anchored at *its* origin with *its* earth radius. The
    `<GPS_parameters>` block of the circuit XML records the exact mapping::
 
-       x = earth_radius · cos(reference_latitude) · (longitude − origin_longitude)
-       y = earth_radius · (latitude  − origin_latitude)
+       x =  earth_radius · cos(reference_latitude) · (longitude − origin_longitude)
+       y = −earth_radius · (latitude  − origin_latitude)
 
    (angle differences in radians — note the solver's frame is *spherical*, one
    radius for both axes). We invert it to lat/lon, then re-project into the
    mockup ENU frame around the mosaic origin through the shared `FlatEnu`, the
    same projection `centerline.py` uses. Routing through lat/lon absorbs the
-   differing origins, radii and axis scales with no assumption about the
-   solver's axis handedness.
-   Verified against the vendored database tracks: fastest-lap is north-up ENU
-   (`+y` = north, yaw CCW from `+x`), the same handedness as the mockup, so no
-   axis flip is needed — the "y-down" worry from planning did not hold.
+   differing origins, radii and axis scales.
+
+   **The solver frame is `x`-east / `y`-south / `z`-down, not north-up ENU.**
+   Both signs are written verbatim into every circuit XML's `<GPS_parameters>`
+   comment, and come from `circuit_preprocessor.hpp:274`, which builds the
+   measured boundaries as `-(latitude − roll0)·R_earth` with `-altitude`. So
+   crossing into the mockup's north-up ENU flips north *and* the sense of yaw:
+   a heading CCW about `z`-down is CW seen from above.
+
+   An earlier revision of this module asserted the opposite ("fastest-lap is
+   north-up ENU, no axis flip needed") and mirrored every lap about the origin
+   latitude — ~1.7 km at Silverstone, right off the mosaic. It survived because
+   the tests forward-projected their fixtures with the same wrong sign, so the
+   round trip closed on itself. The tests below now pin the sign against the
+   documented formula, not against this module's inverse of it.
 
 2. **Resample to uniform dt.** The solver's mesh is arc-length based, so its
    time samples are non-uniform; the trajectory schema requires uniform `dt`. We
@@ -174,7 +184,8 @@ def native_to_mockup_enu(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Cross solver-frame positions into mockup ENU meters via lat/lon."""
     # 1. Invert the solver's equirectangular mapping to lat/lon (degrees).
-    lat = gps.origin_lat + np.degrees(y / gps.earth_radius)
+    #    `y` points *south* (y = -R·Δlat), so the inverse subtracts.
+    lat = gps.origin_lat - np.degrees(y / gps.earth_radius)
     lon = gps.origin_lon + np.degrees(
         x / (gps.earth_radius * math.cos(math.radians(gps.reference_lat)))
     )
@@ -187,8 +198,18 @@ def native_yaw_to_mockup(
 ) -> np.ndarray:
     """Map solver heading into the mockup frame.
 
-    Both frames are flat tangent planes over the same lat/lon, so a heading maps
-    by the ratio of their per-axis scale factors. The old form was
+    Two corrections compose here.
+
+    **Handedness.** The solver's `y` points south and its `z` points down, so a
+    yaw measured CCW in that frame is CW seen from above in the mockup's north-up
+    ENU: the sense flips. Checked against the Silverstone lap by comparing each
+    yaw with the heading implied by the path's own finite differences — the flip
+    lands within 0.88° on average (that residual is the car's sideslip angle),
+    while leaving it out is off by 97°.
+
+    **Axis ratio.** Both frames are flat tangent planes over the same lat/lon, so
+    a heading additionally maps by the ratio of their per-axis scale factors. The
+    old form was
     ``cos(origin_lat) / cos(reference_lat)`` — correct only while both frames
     were spherical with the same radius, which made the two *north* scales
     cancel. The mockup's north scale is now the meridional radius `M(φ0)` and
@@ -201,7 +222,8 @@ def native_yaw_to_mockup(
     """
     solver_east_per_rad = gps.earth_radius * math.cos(math.radians(gps.reference_lat))
     k = FlatEnu.at(origin_lat, 0.0).heading_from(solver_east_per_rad, gps.earth_radius)
-    return np.arctan2(np.sin(yaw), k * np.cos(yaw))
+    # Negating sin alone is the y-south flip: cos(-yaw) == cos(yaw).
+    return np.arctan2(-np.sin(yaw), k * np.cos(yaw))
 
 
 def _resample_uniform(

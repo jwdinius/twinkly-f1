@@ -38,9 +38,22 @@ MOCK_ORIGIN_LON = 7.423325
 
 
 def _latlon_to_fl(lat: float, lon: float) -> tuple[float, float]:
+    """Forward-project lat/lon into the solver frame, per fastest-lap's own formula.
+
+    Transcribed from the `<GPS_parameters>` comment fastest-lap writes into every
+    circuit XML (`circuit_preprocessor.hpp:818`), which the C++ at line 274
+    implements — note `y` runs *south*. This sign is the whole point of the
+    fixture: copying the bridge's inverse instead would make the round trip close
+    on itself no matter which way either one pointed.
+    """
     x = FL_R * math.cos(math.radians(FL_REF_LAT)) * math.radians(lon - FL_ORIGIN_LON)
-    y = FL_R * math.radians(lat - FL_ORIGIN_LAT)
+    y = -FL_R * math.radians(lat - FL_ORIGIN_LAT)
     return x, y
+
+
+def _enu_heading_to_fl(heading: float) -> float:
+    """Invert a north-up ENU heading into the solver's y-south, z-down frame."""
+    return -heading
 
 
 def _mockup_scales(olat: float = MOCK_ORIGIN_LAT) -> tuple[float, float]:
@@ -155,6 +168,70 @@ def test_frame_crossing_round_trips_to_mockup_enu(tmp_path: Path) -> None:
         assert y == pytest.approx(exp_y, abs=1e-6)
 
 
+def test_positive_native_y_lands_south_of_the_solver_origin(tmp_path: Path) -> None:
+    """The solver's `+y` is *south*: `y = -earth_radius·(lat - origin_lat)`.
+
+    Pinned as a bare directional claim rather than a round trip, because a round
+    trip closes on itself if the fixture and the bridge share a sign error — which
+    is exactly what happened. `import_lap` read `+y` as north and mirrored every
+    lap about the origin latitude (~1.7 km at Silverstone, clean off the mosaic).
+
+    Sitting the solver origin north of the mockup origin makes the assertion
+    concrete: a point at `+y` must come out *below* the point at `y = 0`.
+    """
+    rows = [(0.0, 0.0, 0.0, 0.0), (_DT, 0.0, 500.0, 0.0)]
+    native = _write_native_csv(tmp_path, rows)
+    out = tmp_path / "lap.csv"
+
+    import_lap(
+        native, _write_circuit_xml(tmp_path), _write_sidecar(tmp_path), out, dt=_DT
+    )
+    traj = Trajectory.load(out)
+
+    _, y_at_origin, _ = traj.sample_at(0.0)
+    _, y_at_plus_500, _ = traj.sample_at(_DT)
+    assert y_at_plus_500 < y_at_origin
+    # 500 m south on a sphere of radius FL_R, measured in the mockup's ENU metres.
+    _, north_per_rad = _mockup_scales()
+    assert y_at_plus_500 - y_at_origin == pytest.approx(
+        -500.0 * north_per_rad / FL_R, rel=1e-6
+    )
+
+
+def test_yaw_flips_sense_crossing_out_of_the_y_south_frame(tmp_path: Path) -> None:
+    """A yaw CCW about the solver's `z`-down axis is CW seen from above.
+
+    The companion to the position flip above, and it fails the same way: a lap
+    whose positions are right but whose headings are mirrored points the car
+    across the track. Checked against the real Silverstone lap by comparing each
+    yaw to the heading implied by the path's own finite differences — flipped,
+    the mean disagreement is 0.88° (the car's sideslip); unflipped, 97°.
+
+    `ref_lat == origin_lat` here so the axis-ratio correction is ~1.0035 and the
+    coarse tolerance below isolates the sign, which is what this test is about.
+    """
+    headings_enu = [0.0, math.pi / 2, -math.pi / 2, 2.6]
+    rows = [
+        (i * _DT, 0.0, 0.0, _enu_heading_to_fl(h))
+        for i, h in enumerate(headings_enu)
+    ]
+    native = _write_native_csv(tmp_path, rows)
+    out = tmp_path / "lap.csv"
+
+    import_lap(
+        native,
+        _write_circuit_xml(tmp_path, ref_lat=MOCK_ORIGIN_LAT),
+        _write_sidecar(tmp_path),
+        out,
+        dt=_DT,
+    )
+    traj = Trajectory.load(out)
+
+    for i, expected in enumerate(headings_enu):
+        _, _, yaw_out = traj.sample_at(i * _DT)
+        assert yaw_out == pytest.approx(expected, abs=2e-3)
+
+
 def test_yaw_carries_the_frames_axis_ratio_even_at_a_matched_reference_latitude(
     tmp_path: Path,
 ) -> None:
@@ -182,7 +259,7 @@ def test_yaw_carries_the_frames_axis_ratio_even_at_a_matched_reference_latitude(
 
     for i, yaw_in in enumerate(_YAWS):
         _, _, yaw_out = traj.sample_at(i * _DT)
-        expected = math.atan2(math.sin(yaw_in), k * math.cos(yaw_in))
+        expected = math.atan2(-math.sin(yaw_in), k * math.cos(yaw_in))
         # Tolerance is the CSV's own `%.9g` write precision, not the maths'.
         assert yaw_out == pytest.approx(expected, abs=1e-8)
         assert -math.pi <= yaw_out <= math.pi
