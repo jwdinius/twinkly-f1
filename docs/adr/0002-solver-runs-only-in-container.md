@@ -33,5 +33,13 @@ interpretation happens host-side in `twinkly-mockup import-lap`.
 - The host `import-lap` bridge consumes **files**, not a live `fastest_lap`
   import — which also cleanly decouples the solver's coordinate frame from the
   mockup's (see the lat/lon frame crossing).
-- A container round-trip is required to regenerate `monaco.xml`; it is therefore
-  committed so the host bridge and still-frame smoke tests run without Docker.
+- Solver artifacts stay **uncommitted** (`artifacts/` is ignored). The circuit
+  XML and native lap CSV are derived from the traced Track-limit KMLs and the
+  solver config, both of which *are* committed, so the pair regenerates from the
+  repo alone. Committing them would put a second, staler copy of the circuit
+  geometry under version control, and the one that drifts is the one nobody
+  looks at.
+- That a container round-trip is needed to regenerate them is therefore not a
+  reason to commit them: it is a reason for host-side tests to depend on
+  fixtures they build themselves rather than on solver output. They already do —
+  every test that needs a circuit XML writes one into `tmp_path`.
