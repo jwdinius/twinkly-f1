@@ -22,6 +22,7 @@ from twinkly_mockup.import_lap import (
     load_native_lap,
     parse_gps_parameters,
 )
+from twinkly_mockup.kml import contains_attribution, read_track_limit_kml
 from twinkly_mockup.trajectory import Trajectory
 
 # --- solver-frame (fastest-lap) fixture parameters ---------------------------
@@ -263,6 +264,80 @@ def test_yaw_carries_the_frames_axis_ratio_even_at_a_matched_reference_latitude(
         # Tolerance is the CSV's own `%.9g` write precision, not the maths'.
         assert yaw_out == pytest.approx(expected, abs=1e-8)
         assert -math.pi <= yaw_out <= math.pi
+
+
+def test_kml_option_writes_a_lap_that_agrees_with_the_csv(tmp_path: Path) -> None:
+    """The KML must land where the CSV says the lap is, not merely near it.
+
+    Both come out of the same crossing, so projecting the KML's lon/lat back
+    through the mockup's ENU has to reproduce the CSV's metres. That is what
+    makes the KML usable as an independent look at the lap over real imagery: if
+    it could drift from the CSV, viewing it would prove nothing about what the
+    renderer is going to draw.
+    """
+    native = _write_native_csv(tmp_path, _native_rows())
+    out = tmp_path / "lap.csv"
+    kml_out = tmp_path / "lap.kml"
+
+    import_lap(
+        native,
+        _write_circuit_xml(tmp_path),
+        _write_sidecar(tmp_path),
+        out,
+        dt=_DT,
+        kml_path=kml_out,
+    )
+
+    coords, closed = read_track_limit_kml(kml_out)  # same LineString reader
+    assert closed  # a lap returns to its start
+    traj = Trajectory.load(out)
+    assert len(coords) == len(traj.t)
+
+    east_per_rad, north_per_rad = _mockup_scales()
+    for i, (lon, lat) in enumerate(coords):
+        x, y, _ = traj.sample_at(traj.t[i])
+        assert math.radians(lon - MOCK_ORIGIN_LON) * east_per_rad == pytest.approx(
+            x, abs=1e-6
+        )
+        assert math.radians(lat - MOCK_ORIGIN_LAT) * north_per_rad == pytest.approx(
+            y, abs=1e-6
+        )
+
+
+def test_kml_is_not_written_unless_asked(tmp_path: Path) -> None:
+    native = _write_native_csv(tmp_path, _native_rows())
+    out = tmp_path / "lap.csv"
+
+    import_lap(native, _write_circuit_xml(tmp_path), _write_sidecar(tmp_path), out, dt=_DT)
+
+    assert list(tmp_path.glob("*.kml")) == []
+
+
+def test_trajectory_kml_disclaims_being_a_track_limit(tmp_path: Path) -> None:
+    """The file has to say what it is once it is separated from this repo.
+
+    A lap KML and a Track-limit KML are both one `LineString` of lon/lat, so
+    nothing about the *format* stops someone handing this to
+    `circuit_preprocessor` as an edge. The comment is the only thing that does,
+    and it travels inside the file.
+    """
+    native = _write_native_csv(tmp_path, _native_rows())
+    kml_out = tmp_path / "lap.kml"
+
+    import_lap(
+        native,
+        _write_circuit_xml(tmp_path),
+        _write_sidecar(tmp_path),
+        tmp_path / "lap.csv",
+        dt=_DT,
+        kml_path=kml_out,
+    )
+
+    text = kml_out.read_text()
+    assert "NOT" in text and "track limit" in text
+    assert "circuit_preprocessor" in text
+    # And it must not masquerade as an authored edge.
+    assert not contains_attribution(text)
 
 
 def test_output_is_schema_valid_and_uniform(tmp_path: Path) -> None:

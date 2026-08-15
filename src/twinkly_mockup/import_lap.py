@@ -53,6 +53,7 @@ import numpy as np
 import yaml
 
 from .enu import FlatEnu
+from .kml import write_optimal_trajectory_kml
 from .mosaic import MosaicSidecar
 from .trajectory import REQUIRED_COLUMNS, Trajectory
 
@@ -274,6 +275,7 @@ def import_lap(
     out_csv_path: Path,
     *,
     dt: float = DEFAULT_DT_S,
+    kml_path: Path | None = None,
 ) -> Path:
     """Convert a native fastest-lap CSV into a renderer trajectory CSV.
 
@@ -281,6 +283,12 @@ def import_lap(
     XML's GPS_parameters and the mosaic sidecar's origin), resamples to uniform
     `dt`, writes `t, x, y, yaw`, and validates the result by loading it through
     `Trajectory`. Returns the output path.
+
+    `kml_path` additionally writes the lap as a `LineString` for viewing over
+    real imagery (Google Earth and friends) — an aid for eyeballing the crossing
+    against something other than this repo's own mosaic projection, which is
+    exactly the sort of check that catches a frame error. The CSV stays the
+    renderer's input; KML carries no `t` or `yaw`.
     """
     if dt <= 0.0:
         raise ImportLapError(f"dt must be positive, got {dt}")
@@ -297,6 +305,17 @@ def import_lap(
 
     _write_trajectory_csv(out_csv_path, grid, x_u, y_u, yaw_u)
     Trajectory.load(out_csv_path)  # fail loudly if we produced an invalid CSV
+
+    if kml_path is not None:
+        # Straight back out of mockup ENU — the same FlatEnu that brought the
+        # lap in, so the KML cannot disagree with the CSV about where it is.
+        lon, lat = FlatEnu.at(sidecar.origin_lat, sidecar.origin_lon).to_lonlat(x_u, y_u)
+        write_optimal_trajectory_kml(
+            kml_path,
+            list(zip(np.asarray(lon).tolist(), np.asarray(lat).tolist(), strict=True)),
+            circuit=Path(circuit_xml_path).stem,
+            lap_time_s=float(grid[-1] - grid[0]),
+        )
     return Path(out_csv_path)
 
 

@@ -94,6 +94,69 @@ def write_track_limit_kml(
     return path
 
 
+def write_optimal_trajectory_kml(
+    path: Path,
+    coords: list[tuple[float, float]],
+    *,
+    circuit: str,
+    lap_time_s: float | None = None,
+) -> Path:
+    """Write an Optimal trajectory as one closed `LineString`, for viewing.
+
+    A *viewing* format, not an interchange one, and deliberately not a
+    Track-limit KML: this is solver **output**, the two are different concepts
+    (see CONTEXT.md), and feeding one back into `circuit_preprocessor` as an
+    edge would be a category error. The comment says so inside the file, since
+    that is the copy most likely to be found on its own.
+
+    KML carries position only, so `t` and `yaw` do not survive — which is why
+    this is an extra emitted alongside the trajectory CSV rather than a
+    replacement for it. `coords` are `(lon, lat)` without a repeated closing
+    vertex; the ring is closed here, as a lap returns to its start.
+    """
+    pairs = [(float(lon), float(lat)) for lon, lat in coords]
+    if len(pairs) < 2:
+        raise KmlError(
+            f"{circuit}: a trajectory needs at least 2 samples, got {len(pairs)}"
+        )
+    ring = pairs + [pairs[0]]
+
+    name = f"{circuit}_optimal_trajectory"
+    lap = "" if lap_time_s is None else f", {lap_time_s:.3f} s"
+    body = re.sub(
+        r"-{2,}",
+        "-",
+        "\n".join(
+            [
+                f"{circuit} optimal trajectory — {len(pairs)} samples{lap}.",
+                "",
+                "Minimum-time line computed by fastest-lap (ADR-0002) and crossed",
+                "into WGS84 by twinkly-mockup import-lap. Derived output: it is NOT",
+                "a track limit and must not be fed back to circuit_preprocessor.",
+                "Position only — the trajectory CSV alongside it carries t and yaw.",
+            ]
+        ),
+    )
+    text = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!--
+{body}
+-->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>{escape(name)}</name>
+    <Placemark><name>{escape(name)}</name>
+      <LineString><tessellate>1</tessellate><altitudeMode>clampToGround</altitudeMode>
+        <coordinates>{" ".join(f"{format_coord(lo)},{format_coord(la)},0" for lo, la in ring)}</coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>
+"""
+    path = Path(path)
+    path.write_text(text)
+    return path
+
+
 def _comment_body(
     circuit: str, edge: str, attribution: str, vertices: int, closed: bool
 ) -> str:

@@ -84,8 +84,17 @@ optimal trajectory computed by [`fastest-lap`](submodules/fastest-lap):
    twinkly-mockup solve-lap --config configs/silverstone_solver.yaml --out artifacts/silverstone
    twinkly-mockup import-lap artifacts/silverstone/lap.csv \
      --circuit artifacts/silverstone/silverstone.xml --mosaic configs/silverstone_mosaic.yaml \
-     --out artifacts/silverstone/trajectory.csv
+     --out artifacts/silverstone/trajectory.csv --kml artifacts/silverstone/trajectory.kml
    ```
+
+   Everything under `artifacts/` is derived and git-ignored: the circuit XML and
+   lap CSV regenerate from the committed track-limit KMLs plus the solver config
+   ([ADR-0002](docs/adr/0002-solver-runs-only-in-container.md)).
+
+   `--kml` is optional and for eyes only — it writes the lap as a `LineString`
+   you can drop on Google Earth to check the frame crossing against imagery that
+   isn't this repo's own mosaic. The renderer reads the CSV; KML carries no `t`
+   or `yaw`.
 
    The config's `circuit` field names the emitted XML, so a solve run against
    one circuit's track limits cannot leave another circuit's filename behind.

@@ -138,6 +138,12 @@ def import_lap_cmd(
         min=1e-6,
         help="Uniform timestep (seconds) for the resampled trajectory.",
     ),
+    kml: Path = typer.Option(
+        None,
+        "--kml",
+        dir_okay=False,
+        help="Also write the lap as a KML LineString, for viewing over imagery.",
+    ),
 ) -> None:
     """Bridge a fastest-lap native lap into the renderer trajectory CSV.
 
@@ -145,12 +151,14 @@ def import_lap_cmd(
     (from the circuit XML's GPS_parameters + the mosaic origin) and resamples to
     a uniform `dt`, then validates the result against the trajectory schema.
     """
-    out_path = import_lap(native_csv, circuit, mosaic, out, dt=dt)
+    out_path = import_lap(native_csv, circuit, mosaic, out, dt=dt, kml_path=kml)
     traj = Trajectory.load(out_path)
     typer.echo(
         f"wrote {out_path} ({len(traj.t)} samples, dt={traj.dt:.4g}s, "
         f"duration={traj.duration:.3f}s)"
     )
+    if kml is not None:
+        typer.echo(f"wrote {kml}")
 
 
 @app.command("solve-lap")
