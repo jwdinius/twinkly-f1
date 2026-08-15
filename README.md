@@ -123,6 +123,13 @@ optimal trajectory computed by [`fastest-lap`](submodules/fastest-lap):
    The full Silverstone lap is 4273 frames, ~18 s to render, ~70 MB. Like
    everything under `artifacts/`, it is derived and git-ignored.
 
+   Two walls ship. `silverstone_lap.yaml` is scale-faithful — the derived 1:8.4
+   viewport, the LEGO car filling its 4 × 2 cutout.
+   `silverstone_lap_double_gsd.yaml` doubles the ground sample distance for
+   coverage: 24.2 × 16.1 m of track, the car down to a 2 × 1 cutout, effective
+   scale 1:16.8. It costs scale fidelity — the mounted model reads ~2×
+   oversized — and buys featureless asphalt going from ~21% of the lap to none.
+
 ## Submodules
 
 - **[submodules/racetrack-mosaic](submodules/racetrack-mosaic)** — builds the

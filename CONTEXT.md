@@ -137,3 +137,12 @@ The standard 9×6 layout therefore sees ~12.1 × 8.1 m of track. The known cost:
 Silverstone's half-width is 7 m, so a racing-line-centred crop is often bare
 asphalt with both painted edges outside the view — about a fifth of the optimal
 lap. That is a consequence of the scale constraint, not a rendering fault.
+
+`snapshot.viewport_m` overrides the derivation, trading scale fidelity for
+coverage. Measure that trade in **ground sample distance** — the track distance
+one LED covers, `viewport_width / led_count` (0.224 m at the derived scale).
+Doubling GSD halves the effective scale to 1:16.8, so the mounted model reads
+~2× oversized, and it halves the car's footprint in tiles: the 4×2 cutout
+becomes 2×1. Viewport, cutout, and `car.dimensions_cm` all move together — a
+config that changes one without the others puts a wrongly-sized silhouette on
+the wall. `configs/silverstone_lap_double_gsd.yaml` is the worked example.

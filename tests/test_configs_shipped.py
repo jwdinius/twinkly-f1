@@ -86,6 +86,49 @@ def test_sweep_cross_product_composes(
     )
 
 
+# --- lap-sequence walls ------------------------------------------------------
+
+LAP_CONFIGS = ["silverstone_lap.yaml", "silverstone_lap_double_gsd.yaml"]
+
+
+@pytest.mark.parametrize("name", LAP_CONFIGS)
+def test_lap_config_is_the_standard_wall(name: str) -> None:
+    """Both lap walls are the 9 × 6 layout, differing only in scale."""
+    cfg = load_config(CONFIGS / name)
+    assert cfg.layout.outer_tiles_w == 9
+    assert cfg.layout.outer_tiles_h == 6
+    assert cfg.car.orientation_deg == -90.0
+
+
+def test_scale_faithful_lap_wall_derives_its_viewport() -> None:
+    """silverstone_lap.yaml keeps the LEGO car's 1:8.4 scale, so it sets no viewport."""
+    cfg = load_config(CONFIGS / "silverstone_lap.yaml")
+    assert cfg.snapshot.viewport_m is None
+    assert cfg.viewport_m() == (9 * WALL_TILE_VIEW_M, 6 * WALL_TILE_VIEW_M)
+    assert (cfg.layout.cutout_tiles_w, cfg.layout.cutout_tiles_h) == (4, 2)
+
+
+def test_double_gsd_lap_wall_doubles_the_view_and_halves_the_car() -> None:
+    """Doubling ground sample distance halves the car's footprint in tiles.
+
+    The car is a fixed real-world object, so at 2× GSD it spans 2 × 1 tiles
+    instead of 4 × 2 — the two numbers move together, and a viewport that
+    doubled without the cutout following (or vice versa) would put a
+    wrongly-sized silhouette on the wall. Pinned so they cannot drift apart.
+    """
+    scale_faithful = load_config(CONFIGS / "silverstone_lap.yaml")
+    doubled = load_config(CONFIGS / "silverstone_lap_double_gsd.yaml")
+
+    base_w, base_h = scale_faithful.viewport_m()
+    wide_w, wide_h = doubled.viewport_m()
+    assert (wide_w, wide_h) == pytest.approx((2 * base_w, 2 * base_h))
+
+    assert (doubled.layout.cutout_tiles_w, doubled.layout.cutout_tiles_h) == (2, 1)
+    assert doubled.car.dimensions_cm == pytest.approx(
+        tuple(d / 2 for d in scale_faithful.car.dimensions_cm)
+    )
+
+
 # --- solver requests ---------------------------------------------------------
 
 SOLVER_CONFIGS = ["silverstone_solver.yaml", "monaco_solver.yaml"]

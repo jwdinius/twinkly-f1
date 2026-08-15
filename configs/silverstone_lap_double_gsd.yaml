@@ -1,0 +1,29 @@
+# Silverstone lap at double ground sample distance.
+#
+# Companion to silverstone_lap.yaml: same wall, same trajectory, each LED
+# covering twice the track distance. The point is to see more of the circuit —
+# corner shape rather than the patch of asphalt under the car.
+#
+# `viewport_m` is set explicitly here, which is the one place this repo departs
+# from the derived wall view: the default is
+# `9 x WALL_TILE_VIEW_M x 6 x WALL_TILE_VIEW_M` = 12.096 x 8.064 m, the 1:8.4
+# LEGO-car scale. Doubling it to 24.192 x 16.128 m halves the effective scale to
+# 1:16.8, so the mounted 25 cm model reads ~2x oversized against the track. That
+# is the deliberate cost of this variant; silverstone_lap.yaml remains the
+# scale-faithful one.
+#
+# The car's `dimensions_cm` are halved to match. They describe how large the
+# model is *on the wall*, and at half scale a real F1 car projects to half the
+# wall size — which is what makes it fit the 2 x 1 cutout.
+layout_config: layout_standard_double_gsd.yaml
+
+snapshot:
+  mosaic: silverstone_mosaic.yaml
+  x_m: 84.503
+  y_m: 840.347
+  yaw_rad: 1.672337
+  viewport_m: [24.192, 16.128]
+
+car:
+  dimensions_cm: [30.5, 12.5]
+  orientation_deg: -90.0
