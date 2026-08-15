@@ -109,3 +109,31 @@ circuit given a vehicle model. Always call it the **optimal trajectory** — nev
 "fastest lap" — so it never reads as a *recorded* session best (real telemetry).
 Recorded telemetry is out of scope for this phase. Consumed by the renderer as a
 time-indexed `(t, x, y, yaw)` trajectory (Mockup ENU frame, uniform `dt`).
+
+### Lap sequence
+The wall rendered as a *movie* of the optimal trajectory rather than a still.
+The LEGO car is physically mounted and never moves, so the **camera is rigidly
+attached to the car** and the track translates and rotates beneath it — the
+fixed-car, moving-world view. A lap sequence is the still-frame path
+(`compose.compose_frame`) driven over every sample of a Trajectory; sampling
+rate and playback rate are the same number, so playback is real time. Say "lap
+sequence", not "animation", to keep it tied to a specific trajectory.
+
+### Camera yaw
+The heading the mosaic sampler puts on the frame's image-**up** axis — *not*
+the car's heading. The car silhouette is drawn nose-up then rotated CCW by
+`car.orientation_deg`, so its nose points along `camera_yaw + orientation_deg`.
+Aiming the nose along a trajectory heading therefore needs
+`camera_yaw = heading − orientation_deg` (`sequence.camera_yaw_for_heading`),
+which for the shipped `-90°` mounting is the familiar `heading + π/2`. Both the
+still-frame authoring script and the lap sequence go through that one function;
+stating the bias twice is how a mirrored lap gets in.
+
+### Wall view scale
+The viewport is **derived, not chosen**: `WALL_TILE_VIEW_M = TILE_PITCH_M /
+LEGO_SCALE ≈ 1.344 m` per tile, so the wall shares the LEGO car's 1:8.4 scale
+and the asphalt around the model is geometrically consistent with the model.
+The standard 9×6 layout therefore sees ~12.1 × 8.1 m of track. The known cost:
+Silverstone's half-width is 7 m, so a racing-line-centred crop is often bare
+asphalt with both painted edges outside the view — about a fifth of the optimal
+lap. That is a consequence of the scale constraint, not a rendering fault.

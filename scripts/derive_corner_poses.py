@@ -38,14 +38,15 @@ sys.path.insert(0, str(REPO / "src"))
 
 from twinkly_mockup.centerline import Centerline  # noqa: E402
 from twinkly_mockup.circuits import load_manifest  # noqa: E402
+from twinkly_mockup.config import CarSpec  # noqa: E402
+from twinkly_mockup.sequence import camera_yaw_for_heading  # noqa: E402
 
-# Renderer convention: car silhouette is drawn nose-up, then rotated by
-# `car.orientation_deg` (CCW). With orientation_deg = -90, the nose ends up
-# pointing image-RIGHT. The mosaic sampler puts ENU direction `yaw_rad` at
-# image-up, so image-right corresponds to ENU direction `yaw_rad - π/2`.
-# To make the nose align with the local track tangent, set
-#   yaw_rad = tangent + π/2.
-YAW_BIAS_RAD: float = math.pi / 2
+# Renderer convention: the camera yaw that aims the mounted car's nose along a
+# heading. `sequence.camera_yaw_for_heading` owns it — a snapshot pose and a lap
+# frame are the same alignment problem, and stating it twice is how the two
+# drift apart. With the shipped `orientation_deg = -90` (nose image-RIGHT) it
+# comes out as `tangent + π/2`.
+CAR = CarSpec(orientation_deg=-90.0)
 
 # Human-picked (lat, lon) hint per circuit, per named corner. Snapping to the
 # nearest centerline vertex absorbs the slop in these — a hint only needs to be
@@ -105,7 +106,7 @@ def poses_for(circuit_name: str) -> None:
         pose = centerline.snap_latlon(
             lat, lon, origin_lat=origin_lat, origin_lon=origin_lon
         )
-        yaw_rad = pose.yaw_rad + YAW_BIAS_RAD
+        yaw_rad = camera_yaw_for_heading(pose.yaw_rad, CAR)
         # Wrap into (-π, π] so YAML values stay readable; the schema accepts
         # anything in [-2π, 2π] either way.
         yaw_rad = (yaw_rad + math.pi) % (2 * math.pi) - math.pi

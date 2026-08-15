@@ -102,6 +102,27 @@ optimal trajectory computed by [`fastest-lap`](submodules/fastest-lap):
    `--dry-run` prints the Docker commands without executing; re-run with
    `--no-build --no-compile` to skip the slow image/compile stages once done.
 
+4. **Lap sequence** — `twinkly-mockup render-lap` plays the optimal trajectory
+   across the wall: the LEGO car fixed, the track moving and rotating beneath
+   it.
+
+   ```
+   twinkly-mockup render-lap configs/silverstone_lap.yaml \
+     --trajectory artifacts/silverstone/trajectory.csv \
+     --out artifacts/silverstone/lap.mp4 --fps 50
+   ```
+
+   The config supplies the wall — layout, render, mosaic, car — and its
+   `snapshot` pose is ignored; every frame's pose comes from the trajectory,
+   with the camera aimed by `sequence.camera_yaw_for_heading` so the mounted
+   car's nose tracks the heading. `--fps` sets sampling *and* playback, so the
+   movie runs in real time; 50 Hz matches the trajectory's own `dt` and gives
+   one frame per solver sample. An `--out` ending in `.mp4` writes a video, any
+   other path writes a numbered PNG sequence into that directory.
+
+   The full Silverstone lap is 4273 frames, ~18 s to render, ~70 MB. Like
+   everything under `artifacts/`, it is derived and git-ignored.
+
 ## Submodules
 
 - **[submodules/racetrack-mosaic](submodules/racetrack-mosaic)** — builds the

@@ -10,8 +10,13 @@ import typer
 from .compose import render_to_png
 from .config import load_config
 from .import_lap import DEFAULT_DT_S, import_lap
+from .sequence import frame_times, render_lap
 from .solver import load_solver_config, solve_lap
 from .trajectory import Trajectory
+
+# The Silverstone trajectory is 50 Hz; matching it means one frame per solver
+# sample, no resampling, and real-time playback.
+DEFAULT_FPS = 50.0
 
 app = typer.Typer(
     help="Twinkly Squares wall-display mockup renderer.",
@@ -215,6 +220,67 @@ def solve_lap_cmd(
         "next: twinkly-mockup import-lap "
         f"{artifacts.native_csv} --circuit {artifacts.circuit_xml} "
         f"--mosaic configs/{config.circuit}_mosaic.yaml --out <trajectory.csv>"
+    )
+
+
+@app.command("render-lap")
+def render_lap_cmd(
+    config_path: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Snapshot YAML supplying the wall: layout, render, mosaic, car.",
+    ),
+    trajectory_path: Path = typer.Option(
+        ...,
+        "--trajectory",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Trajectory CSV from `import-lap` (t,x,y,yaw in mockup ENU).",
+    ),
+    out: Path = typer.Option(
+        ...,
+        "--out",
+        help="Output `.mp4`, or a directory to receive a numbered PNG sequence.",
+    ),
+    fps: float = typer.Option(
+        DEFAULT_FPS,
+        "--fps",
+        min=1e-3,
+        help="Frames per second, for both sampling and playback (so: real time).",
+    ),
+) -> None:
+    """Render the lap as a movie: the car fixed, the track moving beneath it.
+
+    The config's `snapshot` pose is ignored — every frame's pose comes from the
+    trajectory, with the camera rigidly attached to the mounted car (see
+    `sequence`). Everything else in the config still applies, so the movie shows
+    the same wall the still frames do.
+    """
+    config = load_config(config_path)
+    trajectory = Trajectory.load(trajectory_path)
+    total = len(frame_times(trajectory, fps))
+    typer.echo(
+        f"rendering {total} frames at {fps:g} fps "
+        f"({trajectory.duration:.2f}s of lap) -> {out}"
+    )
+
+    with typer.progressbar(length=total, label="frames") as bar:
+        last = 0
+
+        def advance(done: int, _total: int) -> None:
+            nonlocal last
+            bar.update(done - last)
+            last = done
+
+        result = render_lap(config, trajectory, fps=fps, out_path=out, progress=advance)
+
+    width, height = result.frame_size_px
+    typer.echo(
+        f"wrote {result.out_path} — {result.frame_count} frames, "
+        f"{width}×{height} px, {result.duration_s:.2f}s at {result.fps:g} fps"
     )
 
 
