@@ -254,6 +254,29 @@ def test_driver_cmd_translates_host_paths_to_container_mounts(tmp_path: Path) ->
     assert f"{out_dir.resolve()}:/out" in cmd
 
 
+def test_driver_cmd_runs_from_the_wrapper_dir(tmp_path: Path) -> None:
+    """The wrapper resolves its compiled-lib path against the CWD.
+
+    `fastest_lap.py` does `CDLL("../../build/lib/libfastestlapc.so.0.5")`, which
+    is relative to the *process* CWD, not the wrapper's file. Running from /out
+    resolved that to /build/lib and `import fastest_lap` died with OSError, so
+    the working directory is part of the contract, not incidental.
+    """
+    config, cfg_dir = _config(tmp_path)
+    out_dir = tmp_path / "artifacts"
+    out_dir.mkdir()
+
+    cmd = driver_cmd(
+        config,
+        cfg_dir,
+        out_dir,
+        fastest_lap_dir=tmp_path / "submodules" / "fastest-lap",
+        docker_dir=tmp_path / "docker",
+    )
+
+    assert cmd[cmd.index("-w") + 1] == "/fastest-lap/examples/python"
+
+
 def test_driver_cmd_open_circuit_flag(tmp_path: Path) -> None:
     config, cfg_dir = _config(tmp_path)
     config = config.model_copy(update={"is_closed": False})

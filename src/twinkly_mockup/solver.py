@@ -45,6 +45,13 @@ CONFIG_MOUNT = "/config"
 OUT_MOUNT = "/out"
 DRIVER_MOUNT = "/work"
 
+# Working directory for the driver. The generated wrapper loads the compiled lib
+# by a path relative to the *process CWD*, not to its own file
+# (`-DPYTHON_API_ABSOLUTE_PATH=off` bakes in `../../build/lib/libfastestlapc.so.0.5`),
+# so the driver must run from the wrapper's own directory. Everything the driver
+# is handed is an absolute container path, so nothing else depends on the CWD.
+WRAPPER_DIR = f"{SUBMODULE_MOUNT}/examples/python"
+
 DRIVER_NAME = "solve_lap.py"
 # Artifact names the driver writes into the output dir. The circuit XML is named
 # after the circuit being solved, not fixed — an `artifacts/` dir holding a
@@ -196,6 +203,8 @@ def driver_cmd(
 
     `config_dir` (holding the KMLs) mounts read-only at /config, the submodule
     at /fastest-lap, the driver dir at /work, and `out_dir` read-write at /out.
+    The working directory is the wrapper's own dir (see :data:`WRAPPER_DIR`), not
+    /out — the wrapper resolves its lib path against the CWD.
     """
     fastest_lap_dir = Path(fastest_lap_dir).resolve()
     config_dir = Path(config_dir).resolve()
@@ -222,7 +231,7 @@ def driver_cmd(
         "-v",
         f"{out_dir}:{OUT_MOUNT}",
         "-w",
-        OUT_MOUNT,
+        WRAPPER_DIR,
         RUN_IMAGE_TAG,
         "python3",
         f"{DRIVER_MOUNT}/{DRIVER_NAME}",

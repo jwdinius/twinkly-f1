@@ -22,8 +22,13 @@ RUN apt-get update && apt-get -y --no-install-recommends install \
     && rm -rf /var/lib/apt/lists/*
 
 ENV MPLBACKEND=Agg
+# The container runs as the host uid (so emitted artifacts aren't root-owned),
+# which has no writable HOME — point matplotlib's cache somewhere it can write.
+ENV MPLCONFIGDIR=/tmp/matplotlib
 # The submodule is mounted here at run time; its generated wrapper lives under
 # examples/python (see compile.sh's -DPYTHON_API_ABSOLUTE_PATH=off).
 ENV PYTHONPATH=/fastest-lap/examples/python
 
+# The run command overrides this with -w: the wrapper resolves its compiled-lib
+# path against the CWD, so the driver must run from /fastest-lap/examples/python.
 WORKDIR /out

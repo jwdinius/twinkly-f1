@@ -17,3 +17,7 @@ out/
 configs/monaco_mosaic.png
 configs/silverstone_mosaic.png
 configs/*_mosaic.png.aux.xml
+
+# Solver artifacts (circuit XML + native lap CSV) — derived, regenerable via
+# `twinkly-mockup solve-lap`.
+artifacts/
