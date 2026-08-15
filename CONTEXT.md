@@ -82,9 +82,30 @@ the origin and `grid_scale` the point scale factor, the two quantities that
 separate grid axes from true east/north — see
 [ADR-0004](docs/adr/0004-utm-grid-frame-in-sidecar.md).
 
+### Native frame
+`fastest-lap`'s own local-Cartesian frame, the one every solver artifact is
+expressed in: **`x` east, `y` south, `z` down**, anchored at the solver's own
+origin with its own earth radius, all three recorded in the circuit XML's
+`GPS_parameters`. Yaw is CCW about that down axis — which is *clockwise* seen
+from above.
+
+It is **not** the Mockup ENU frame, and the difference is a north–south mirror
+plus a reversed sense of yaw, not a scale. Say which frame a coordinate is in
+whenever both are in play: an unqualified "x, y" is what let the two be
+conflated once already, mirroring every imported lap about the solver's origin
+latitude. Nothing but `import-lap` may speak this frame; it is the last thing
+crossed out of before a trajectory reaches the renderer.
+
+### Mockup ENU frame
+The frame everything downstream of `import-lap` uses: metres east and north of
+the Sidecar's origin, yaw CCW from `+x` (east). The Trajectory, the snapshot
+poses, and the renderer are all in it. Distinct from the Native frame above and
+from the Sidecar's *grid* east/north, which the UTM convergence separates from
+true east/north (ADR-0004).
+
 ### Optimal trajectory
 The minimum-lap-time line + speed profile that `fastest-lap` computes for a
 circuit given a vehicle model. Always call it the **optimal trajectory** — never
 "fastest lap" — so it never reads as a *recorded* session best (real telemetry).
 Recorded telemetry is out of scope for this phase. Consumed by the renderer as a
-time-indexed `(t, x, y, yaw)` trajectory (mockup ENU frame, uniform `dt`).
+time-indexed `(t, x, y, yaw)` trajectory (Mockup ENU frame, uniform `dt`).
