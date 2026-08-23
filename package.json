@@ -1,0 +1,9 @@
+{
+  "name": "twinkly-f1-tracer",
+  "private": true,
+  "type": "module",
+  "description": "ESM declaration for the in-repo track-limit tracer. The tracer's frame transform is a second implementation of the renderer's projection (ADR-0004) and is bound to the Python one by a golden fixture; `npm test` runs that binding. No dependencies — the tracer is plain ES modules served from a checkout.",
+  "scripts": {
+    "test": "node --test tests/js/*.test.js"
+  }
+}

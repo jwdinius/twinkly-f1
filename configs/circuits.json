@@ -1,0 +1,31 @@
+{
+  "note": [
+    "The circuit manifest (ADR-0003). This is the single place a circuit is declared:",
+    "adding one means adding an entry here, never editing scripts/trace_track_limits.html.",
+    "Every path is relative to this file's directory. `mosaic` is gitignored build output —",
+    "regenerate it with scripts/build_<name>_mosaic.sh, which emits `sidecar` in the same breath.",
+    "`half_width_m` is the constant half-width the seeding step offsets the Centerline by; it is",
+    "a starting guess for dragging, not a measurement, and a seed is explicitly not a track limit.",
+    "JSON has no comment syntax, hence this key — scripts/trace.py ignores it."
+  ],
+  "circuits": [
+    {
+      "name": "monaco",
+      "title": "Circuit de Monaco",
+      "mosaic": "monaco_mosaic.png",
+      "sidecar": "monaco_mosaic.yaml",
+      "centerline": "monaco_centerline.geojson",
+      "half_width_m": 5.0,
+      "attribution": "Centerline geometry © Tomislav Bacinger, MIT — bacinger/f1-circuits, circuits/mc-1929.geojson"
+    },
+    {
+      "name": "silverstone",
+      "title": "Silverstone Circuit",
+      "mosaic": "silverstone_mosaic.png",
+      "sidecar": "silverstone_mosaic.yaml",
+      "centerline": "silverstone_centerline.geojson",
+      "half_width_m": 7.0,
+      "attribution": "Centerline geometry © Tomislav Bacinger, MIT — bacinger/f1-circuits, circuits/gb-1948.geojson"
+    }
+  ]
+}

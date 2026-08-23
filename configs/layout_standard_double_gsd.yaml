@@ -1,0 +1,25 @@
+# Standard 9 × 6 wall at double ground sample distance.
+#
+# Same tile geometry as layout_standard.yaml, but each LED covers twice the
+# track distance. The car is a fixed real-world object, so doubling GSD halves
+# its footprint in tiles: the 4 × 2 cutout becomes 2 × 1. That frees 6 tiles
+# back to the track — 9 * 6 - 2 * 1 = 52 LED tiles.
+#
+# The cutout keeps the standard layout's asymmetry, with more wall to the right
+# of the LEGO mount than the left, so the nose (orientation_deg = -90 points it
+# image-right) faces into the wider "track ahead" zone.
+#
+# Pair this with a snapshot that sets `viewport_m` explicitly to twice the
+# LEGO-scale derivation — see silverstone_lap_double_gsd.yaml. Leaving
+# viewport_m unset would derive the 1:8.4 viewport and give back the original
+# GSD with a mismatched cutout.
+layout:
+  outer_tiles_w: 9
+  outer_tiles_h: 6
+  cutout_tiles_w: 2
+  cutout_tiles_h: 1
+  cutout_offset_x: 3
+  cutout_offset_y: 2
+
+render:
+  scale_px_per_led: 10

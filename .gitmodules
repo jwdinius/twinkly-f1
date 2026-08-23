@@ -4,3 +4,6 @@
 [submodule "submodules/f1-circuits"]
 	path = submodules/f1-circuits
 	url = https://github.com/bacinger/f1-circuits.git
+[submodule "submodules/fastest-lap"]
+	path = submodules/fastest-lap
+	url = git@github.com:jwdinius/fastest-lap.git

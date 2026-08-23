@@ -1,0 +1,22 @@
+# Silverstone lap: the wall config for the full-lap movie.
+#
+# `render-lap` takes layout, render, mosaic and car from here and ignores the
+# snapshot pose, reading every frame's pose from the trajectory CSV instead. The
+# pose below is the lap's own first sample (t=0 in artifacts/silverstone/
+# trajectory.csv), biased into camera yaw by the car's -90° mounting — so
+# `render` on this same file gives the movie's opening frame as a still.
+#
+# viewport_m is left unset: the wall view derives from the layout at the LEGO
+# car's 1:8.4 scale (Config.viewport_m), which is what keeps the asphalt around
+# the model geometrically consistent with the model itself.
+layout_config: layout_standard.yaml
+
+snapshot:
+  mosaic: silverstone_mosaic.yaml
+  x_m: 84.503
+  y_m: 840.347
+  yaw_rad: 1.672337
+
+car:
+  dimensions_cm: [61.0, 25.0]
+  orientation_deg: -90.0

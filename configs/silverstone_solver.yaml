@@ -1,0 +1,25 @@
+# Silverstone optimal-lap solve request, consumed by `twinkly-mockup solve-lap`
+# (see src/twinkly_mockup/solver.py and ADR-0002).
+#
+# left_kml/right_kml are the track-limit KMLs — authored in the in-repo tracer,
+# scripts/trace_track_limits.html (see ADR-0003). Unlike Monaco's, these exist:
+# both edges are closed, share a winding and a start point, and run 11.5-17.5 m
+# apart (median 15.2 m), so they are a traced pair rather than an undragged
+# constant-width seed.
+#
+# Paths are relative to this file's directory. The two KMLs must live under this
+# directory (it is mounted read-only into the container).
+circuit: silverstone
+left_kml: silverstone_left.kml
+right_kml: silverstone_right.kml
+
+# Vehicle model driven around the lap. limebeer-2014-f1 is the fastest-lap F1
+# default (ADR-0002 / the optimal-lap plan).
+vehicle_xml: ../submodules/fastest-lap/database/vehicles/f1/limebeer-2014-f1.xml
+
+# Discretisation of the circuit for the optimiser. Silverstone is 5.89 km
+# against Monaco's 3.34 km, so the same element count buys a coarser mesh; 750
+# elements is ~7.9 m of track each.
+number_of_elements: 750
+is_closed: true
+mode: equally-spaced

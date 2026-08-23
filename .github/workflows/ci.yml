@@ -1,0 +1,33 @@
+name: ci
+
+# Both test suites, via the single command developers run locally
+# (scripts/check.sh). The JavaScript half is not optional: it is what keeps the
+# tracer's frame transform from drifting away from the renderer's (ADR-0004).
+#
+# GDAL is deliberately not installed. Nothing under test shells out to it — the
+# sidecar emitter is exercised against synthesised `gdalinfo -json` payloads —
+# and the mosaic PNGs are gitignored build output, so the tests that need them
+# skip on a fresh clone.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: uv sync --all-groups
+
+      - run: scripts/check.sh
